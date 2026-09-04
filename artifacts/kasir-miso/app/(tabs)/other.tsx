@@ -334,7 +334,11 @@ export default function OtherScreen() {
             {!accountHydrated
               ? 'Mohon tunggu sebentar'
               : accountReady
-                ? `${accountEmail || 'Akun Google'} · backup otomatis aktif`
+                ? onlineBackup.autoBackupReady
+                  ? `${accountEmail || 'Akun Google'} · backup otomatis aktif`
+                  : onlineBackup.accountRestoreStatus === 'restoring'
+                    ? `${accountEmail || 'Akun Google'} · memulihkan backup akun ini...`
+                    : `${accountEmail || 'Akun Google'} · backup otomatis ditahan`
                 : isAccountConnected
                   ? 'Hubungkan ulang untuk mengaktifkan akses Drive'
                   : googleServerConfigured

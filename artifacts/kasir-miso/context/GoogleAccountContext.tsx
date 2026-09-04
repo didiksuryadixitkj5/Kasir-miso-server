@@ -61,6 +61,7 @@ type GoogleAccountContextValue = {
   isConnected: boolean;
   email: string;
   hydrated: boolean;
+  connectionGeneration: number;
   hasDriveAccess: boolean;
   authError: string;
   request: ReturnType<typeof Google.useAuthRequest>[0];
@@ -108,6 +109,7 @@ function createDeviceId() {
 export function GoogleAccountProvider({ children }: { children: React.ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [email, setEmail] = useState('');
+  const [connectionGeneration, setConnectionGeneration] = useState(0);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState('');
   const [authError, setAuthError] = useState('');
@@ -271,6 +273,7 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
         setSessionToken(connection.sessionToken);
         setEmail(connection.email);
         setIsConnected(true);
+        setConnectionGeneration((generation) => generation + 1);
         setAuthError('');
       } catch (reason) {
         if (!mounted) return;
@@ -350,6 +353,7 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     isConnected,
     email,
     hydrated,
+    connectionGeneration,
     hasDriveAccess: Boolean(sessionToken && isConnected),
     authError,
     request,
@@ -361,6 +365,7 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     logout,
   }), [
     authError,
+    connectionGeneration,
     downloadDriveBackup,
     email,
     hydrated,

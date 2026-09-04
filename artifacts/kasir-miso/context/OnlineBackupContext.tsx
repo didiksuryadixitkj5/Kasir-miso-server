@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { reloadAppAsync } from 'expo';
 import { ApiError } from '@workspace/api-client-react';
 import { useGoogleAccount } from '@/context/GoogleAccountContext';
 import { useWarung } from '@/context/WarungContext';
@@ -22,11 +23,14 @@ const RECOVERY_SNAPSHOT_KEY = 'warung-online-restore-recovery-v1';
 const RECOVERY_JOURNAL_KEY = 'warung-online-restore-journal-v1';
 
 type BackupStatus = 'idle' | 'backing-up' | 'restoring' | 'success' | 'error';
+type AccountRestoreStatus = 'idle' | 'restoring' | 'ready' | 'blocked';
 
 type OnlineBackupContextValue = {
   status: BackupStatus;
   lastBackupAt: string;
   error: string;
+  autoBackupReady: boolean;
+  accountRestoreStatus: AccountRestoreStatus;
   backupNow: () => Promise<string>;
   restoreLatest: () => Promise<string>;
 };
@@ -84,6 +88,7 @@ async function saveRemoteRevision(backup: StoredBackup, modifiedTime: string, ac
 export function OnlineBackupProvider({ children }: { children: React.ReactNode }) {
   const {
     email: accountEmail,
+    connectionGeneration,
     hasDriveAccess,
     uploadDriveBackup,
     downloadDriveBackup,
@@ -92,10 +97,13 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
   const [status, setStatus] = useState<BackupStatus>('idle');
   const [lastBackupAt, setLastBackupAt] = useState('');
   const [error, setError] = useState('');
+  const [autoBackupReady, setAutoBackupReady] = useState(false);
+  const [accountRestoreStatus, setAccountRestoreStatus] = useState<AccountRestoreStatus>('idle');
   const backupInFlight = useRef(false);
   const backupQueued = useRef(false);
   const automaticBackupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backupBaseline = useRef<string | null>(null);
+  const accountRestoreKey = useRef<string | null>(null);
 
   const businessStateSignature = useMemo(() => JSON.stringify({
     menus: warung.menus,
@@ -180,35 +188,6 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
     }
   }, [accountEmail, downloadDriveBackup, hasDriveAccess, uploadDriveBackup]);
 
-  useEffect(() => {
-    if (!hasDriveAccess || !warung.hydrated) {
-      backupBaseline.current = null;
-      if (automaticBackupTimer.current) clearTimeout(automaticBackupTimer.current);
-      automaticBackupTimer.current = null;
-      return;
-    }
-
-    // Hydration and a newly connected account establish a baseline only. They
-    // must never be interpreted as a user change that needs uploading.
-    if (backupBaseline.current === null) {
-      backupBaseline.current = businessStateSignature;
-      return;
-    }
-    if (backupBaseline.current === businessStateSignature) return;
-
-    backupBaseline.current = businessStateSignature;
-    if (automaticBackupTimer.current) clearTimeout(automaticBackupTimer.current);
-    automaticBackupTimer.current = setTimeout(() => {
-      automaticBackupTimer.current = null;
-      void runBackup().catch(() => undefined);
-    }, 2500);
-
-    return () => {
-      if (automaticBackupTimer.current) clearTimeout(automaticBackupTimer.current);
-      automaticBackupTimer.current = null;
-    };
-  }, [businessStateSignature, hasDriveAccess, runBackup, warung.hydrated]);
-
   const restoreLatest = useCallback(async () => {
     if (!hasDriveAccess) throw new Error('Hubungkan akun Google Drive terlebih dahulu.');
     setStatus('restoring');
@@ -287,13 +266,100 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
     }
   }, [accountEmail, downloadDriveBackup, hasDriveAccess]);
 
+  const currentAccountKey = connectionGeneration > 0 && accountEmail
+    ? `${connectionGeneration}:${accountEmail.trim().toLowerCase()}`
+    : null;
+  const accountRestorePending = Boolean(currentAccountKey && accountRestoreKey.current !== currentAccountKey);
+
+  useEffect(() => {
+    if (!warung.hydrated || !hasDriveAccess || !accountEmail) {
+      if (!hasDriveAccess) {
+        accountRestoreKey.current = null;
+        setAutoBackupReady(false);
+        setAccountRestoreStatus('idle');
+      }
+      return;
+    }
+
+    if (connectionGeneration === 0) {
+      setAutoBackupReady(true);
+      setAccountRestoreStatus('ready');
+      return;
+    }
+
+    const nextAccountKey = `${connectionGeneration}:${accountEmail.trim().toLowerCase()}`;
+    if (accountRestoreKey.current === nextAccountKey) return;
+
+    accountRestoreKey.current = nextAccountKey;
+    setAutoBackupReady(false);
+    setAccountRestoreStatus('restoring');
+    let mounted = true;
+    void restoreLatest()
+      .then(async () => {
+        if (!mounted) return;
+        setAutoBackupReady(true);
+        setAccountRestoreStatus('ready');
+        await reloadAppAsync();
+      })
+      .catch((reason) => {
+        if (!mounted) return;
+        setAutoBackupReady(false);
+        setAccountRestoreStatus('blocked');
+        if (reason instanceof ApiError && reason.status === 404) {
+          setError('Akun Google baru belum memiliki backup. Backup otomatis ditahan agar data akun sebelumnya tidak tertimpa. Buat backup manual setelah data siap.');
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [accountEmail, connectionGeneration, hasDriveAccess, restoreLatest, warung.hydrated]);
+
+  useEffect(() => {
+    if (!hasDriveAccess || !warung.hydrated || !autoBackupReady || accountRestorePending) {
+      backupBaseline.current = null;
+      if (automaticBackupTimer.current) clearTimeout(automaticBackupTimer.current);
+      automaticBackupTimer.current = null;
+      return;
+    }
+
+    // Hydration and a newly restored account establish a baseline only. They
+    // must never be interpreted as a user change that needs uploading.
+    if (backupBaseline.current === null) {
+      backupBaseline.current = businessStateSignature;
+      return;
+    }
+    if (backupBaseline.current === businessStateSignature) return;
+
+    backupBaseline.current = businessStateSignature;
+    if (automaticBackupTimer.current) clearTimeout(automaticBackupTimer.current);
+    automaticBackupTimer.current = setTimeout(() => {
+      automaticBackupTimer.current = null;
+      void runBackup().catch(() => undefined);
+    }, 2500);
+
+    return () => {
+      if (automaticBackupTimer.current) clearTimeout(automaticBackupTimer.current);
+      automaticBackupTimer.current = null;
+    };
+  }, [
+    accountRestorePending,
+    autoBackupReady,
+    businessStateSignature,
+    hasDriveAccess,
+    runBackup,
+    warung.hydrated,
+  ]);
+
   const value = useMemo<OnlineBackupContextValue>(() => ({
     status,
     lastBackupAt,
     error,
+    autoBackupReady,
+    accountRestoreStatus,
     backupNow: runBackup,
     restoreLatest,
-  }), [error, lastBackupAt, restoreLatest, runBackup, status]);
+  }), [accountRestoreStatus, autoBackupReady, error, lastBackupAt, restoreLatest, runBackup, status]);
 
   return <OnlineBackupContext.Provider value={value}>{children}</OnlineBackupContext.Provider>;
 }
