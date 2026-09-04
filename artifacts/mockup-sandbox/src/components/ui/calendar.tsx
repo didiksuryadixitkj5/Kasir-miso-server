@@ -129,7 +129,10 @@ function Calendar({
           return (
             <div
               data-slot="calendar"
-              ref={rootRef}
+              // react-day-picker and the sandbox currently resolve different
+              // React type packages. Keep the runtime ref while normalizing
+              // the type at this package boundary.
+              ref={rootRef as unknown as React.ComponentProps<"div">["ref"]}
               className={cn(className)}
               {...props}
             />
