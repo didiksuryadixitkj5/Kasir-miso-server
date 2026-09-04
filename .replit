@@ -24,7 +24,7 @@ timeoutMs = 20000
 [userenv.shared]
 GOOGLE_OAUTH_CLIENT_IDS = "553508307121-cj1jc7n5005r5e6bqh0gp9omeoucrdev.apps.googleusercontent.com,553508307121-uk04mtntjliikejh3dinbprgin3mk0a8.apps.googleusercontent.com,553508307121-f0h23n5rj0jpmh5168cqt50umcj8dqid.apps.googleusercontent.com"
 GOOGLE_OAUTH_WEB_CLIENT_ID = "553508307121-cj1jc7n5005r5e6bqh0gp9omeoucrdev.apps.googleusercontent.com"
-EXPO_PUBLIC_API_BASE_URL = "https://kasir-miso--lcoo2838.replit.app"
+EXPO_PUBLIC_API_BASE_URL = "https://kasir-miso-server--hyha444.replit.app"
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID = "553508307121-cj1jc7n5005r5e6bqh0gp9omeoucrdev.apps.googleusercontent.com"
 EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID = "553508307121-uk04mtntjliikejh3dinbprgin3mk0a8.apps.googleusercontent.com"
 EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID = "553508307121-f0h23n5rj0jpmh5168cqt50umcj8dqid.apps.googleusercontent.com"
