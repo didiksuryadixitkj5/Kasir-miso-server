@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { Alert, Animated, Image, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useWarung } from '@/context/WarungContext';
@@ -24,6 +25,7 @@ export default function StockEditScreen() {
     deleteMenu,
     deleteInventoryItem,
     deleteConsignment,
+    reorderMenus,
   } = useWarung();
   const [section, setSection] = useState<EditSection>('menus');
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -48,6 +50,10 @@ export default function StockEditScreen() {
   const [consignmentQty, setConsignmentQty] = useState('');
   const [consignmentRemainder, setConsignmentRemainder] = useState(0);
   const [consignmentImageUri, setConsignmentImageUri] = useState<string | undefined>();
+  const [draggingMenuId, setDraggingMenuId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState(0);
+  const menuLayouts = useRef<Record<string, { y: number; height: number }>>({});
+  const activeDrag = useRef<{ id: string; index: number } | null>(null);
 
   const closeMenu = () => {
     setMenuId(null);
@@ -182,6 +188,51 @@ export default function StockEditScreen() {
     ]);
   };
 
+  const menuPanResponders = useMemo(() => new Map(
+    menus.map((menu, index) => {
+      const responder = PanResponder.create({
+        onStartShouldSetPanResponder: () => false,
+        onMoveShouldSetPanResponder: (_, gesture) => (
+          Math.abs(gesture.dy) > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx)
+        ),
+        onPanResponderGrant: () => {
+          activeDrag.current = { id: menu.id, index };
+          setDraggingMenuId(menu.id);
+          setDragOffset(0);
+          void Haptics.selectionAsync().catch(() => undefined);
+        },
+        onPanResponderMove: (_, gesture) => {
+          if (activeDrag.current?.id === menu.id) setDragOffset(gesture.dy);
+        },
+        onPanResponderRelease: (_, gesture) => {
+          const drag = activeDrag.current;
+          if (!drag || drag.id !== menu.id) return;
+          const layout = menuLayouts.current[menu.id];
+          const pointerY = (layout?.y ?? drag.index * 77) + (layout?.height ?? 68) / 2 + gesture.dy;
+          let targetIndex = 0;
+          menus.forEach((candidate, candidateIndex) => {
+            const candidateLayout = menuLayouts.current[candidate.id];
+            const centerY = (candidateLayout?.y ?? candidateIndex * 77) + (candidateLayout?.height ?? 68) / 2;
+            if (pointerY > centerY) targetIndex = candidateIndex;
+          });
+          reorderMenus(menu.id, Math.max(0, Math.min(menus.length - 1, targetIndex)));
+          activeDrag.current = null;
+          setDraggingMenuId(null);
+          setDragOffset(0);
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+        },
+        onPanResponderTerminate: () => {
+          activeDrag.current = null;
+          setDraggingMenuId(null);
+          setDragOffset(0);
+        },
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
+      });
+      return [menu.id, responder] as const;
+    }),
+  ), [menus, reorderMenus]);
+
   return (
     <Screen contentBottomInset={false}>
       <PageHeader
@@ -199,7 +250,7 @@ export default function StockEditScreen() {
       />
       <View style={[s.orderNote, { backgroundColor: c.secondary }]}>
         <Ionicons name="swap-vertical-outline" size={18} color={c.primary} />
-        <Text style={[s.orderText, { color: c.mutedForeground }]}>Urutan pengeditan: Menu → Bahan baku → Barang titipan</Text>
+        <Text style={[s.orderText, { color: c.mutedForeground }]}>Geser menu di tab Menu untuk mengubah urutan tampilnya di Dapur.</Text>
       </View>
       <View style={s.tabs}>
         {([
@@ -213,15 +264,32 @@ export default function StockEditScreen() {
           </Pressable>
         ))}
       </View>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.list}>
+       <ScrollView scrollEnabled={!draggingMenuId} showsVerticalScrollIndicator={false} contentContainerStyle={s.list}>
         {section === 'menus' ? (
           menus.length ? menus.map((menu) => (
-            <Surface key={menu.id} style={s.item}>
-              <View style={[s.itemIcon, { backgroundColor: c.secondary }]}>{menu.imageUri ? <Image source={{ uri: menu.imageUri }} style={s.imageFill} /> : <Ionicons name="restaurant-outline" size={20} color={c.primary} />}</View>
-              <View style={s.flex}><Text style={[s.name, { color: c.foreground }]}>{menu.name}</Text><Text style={[s.detail, { color: c.mutedForeground }]}>{menu.category || 'Lainnya'} · Rp {menu.price.toLocaleString('id-ID')}</Text></View>
-              <IconButton icon="create-outline" label={`Edit ${menu.name}`} onPress={() => openMenu(menu)} />
-              <IconButton icon="trash-outline" label={`Hapus ${menu.name}`} onPress={() => deleteItem('menus', menu.id, menu.name)} />
-            </Surface>
+            <Animated.View
+              key={menu.id}
+              {...menuPanResponders.get(menu.id)?.panHandlers}
+              testID={`menu-order-${menu.id}`}
+              onLayout={(event) => {
+                const { y, height } = event.nativeEvent.layout;
+                menuLayouts.current[menu.id] = { y, height };
+              }}
+              style={[
+                draggingMenuId === menu.id ? s.draggingItem : undefined,
+                draggingMenuId === menu.id ? { transform: [{ translateY: dragOffset }] } : undefined,
+              ]}
+            >
+              <Surface style={[s.item, draggingMenuId === menu.id ? { borderColor: c.primary, backgroundColor: c.secondary } : undefined]}>
+                <View style={[s.dragHandle, { backgroundColor: c.secondary }]}>
+                  <Ionicons name="reorder-three-outline" size={21} color={c.primary} />
+                </View>
+                <View style={[s.itemIcon, { backgroundColor: c.secondary }]}>{menu.imageUri ? <Image source={{ uri: menu.imageUri }} style={s.imageFill} /> : <Ionicons name="restaurant-outline" size={20} color={c.primary} />}</View>
+                <View style={s.flex}><Text style={[s.name, { color: c.foreground }]}>{menu.name}</Text><Text style={[s.detail, { color: c.mutedForeground }]}>{menu.category || 'Lainnya'} · Rp {menu.price.toLocaleString('id-ID')}</Text></View>
+                <IconButton icon="create-outline" label={`Edit ${menu.name}`} onPress={() => openMenu(menu)} />
+                <IconButton icon="trash-outline" label={`Hapus ${menu.name}`} onPress={() => deleteItem('menus', menu.id, menu.name)} />
+              </Surface>
+            </Animated.View>
           )) : <EmptyState icon="restaurant-outline" title="Belum ada menu" body="Buat menu terlebih dahulu dari halaman Stok." />
         ) : null}
         {section === 'ingredients' ? (
@@ -322,6 +390,8 @@ const s = StyleSheet.create({
   tabText: { fontSize: 10, fontWeight: '800', textAlign: 'center' },
   list: { paddingBottom: 30 },
   item: { minHeight: 68, padding: 11, flexDirection: 'row', alignItems: 'center', marginBottom: 9 },
+  draggingItem: { zIndex: 10, elevation: 6, shadowColor: '#000', shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  dragHandle: { width: 27, height: 42, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginRight: 7 },
   itemIcon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', marginRight: 10, overflow: 'hidden' },
   imageFill: { width: '100%', height: '100%' },
   flex: { flex: 1 },

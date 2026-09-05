@@ -98,6 +98,7 @@ interface ContextValue extends WarungState {
   addMenu: (name: string, price: number, recipe?: Record<string, number>, category?: string, imageUri?: string) => void;
   updateMenu: (id: string, name: string, price: number, recipe?: Record<string, number>, category?: string, imageUri?: string) => void;
   deleteMenu: (id: string) => void;
+  reorderMenus: (id: string, toIndex: number) => void;
   addInventoryItem: (name: string, unit: string, qty: number, safe: number) => void;
   updateInventoryItem: (id: string, name: string, unit: string, qty: number, safe: number) => void;
   deleteInventoryItem: (id: string) => void;
@@ -202,6 +203,15 @@ export function WarungProvider({ children }: { children: ReactNode }) {
     addMenu: (name, price, recipe = {}, category = 'Lainnya', imageUri) => setState(s => ({ ...s, menus: [...s.menus, { id: makeId(), name, price, recipe, category, imageUri }] })),
     updateMenu: (id, name, price, recipe = {}, category = 'Lainnya', imageUri) => setState(s => ({ ...s, menus: s.menus.map(item => item.id === id ? { ...item, name, price, recipe, category, imageUri } : item) })),
     deleteMenu: id => setState(s => ({ ...s, menus: s.menus.filter(item => item.id !== id) })),
+     reorderMenus: (id, toIndex) => setState(s => {
+       const fromIndex = s.menus.findIndex(item => item.id === id);
+       if (fromIndex < 0 || toIndex < 0 || toIndex >= s.menus.length || fromIndex === toIndex) return s;
+       const menus = [...s.menus];
+       const [moved] = menus.splice(fromIndex, 1);
+       if (!moved) return s;
+       menus.splice(toIndex, 0, moved);
+       return { ...s, menus };
+     }),
     addInventoryItem: (name, unit, qty, safe) => setState(s => ({ ...s, inventory: [...s.inventory, { id: makeId(), name, unit, qty, safe }] })),
      updateInventoryItem: (id, name, unit, qty, safe) => setState(s => ({ ...s, inventory: s.inventory.map(item => item.id === id ? { ...item, name, unit, qty, safe } : item) })),
      deleteInventoryItem: id => setState(s => ({ ...s, inventory: s.inventory.filter(item => item.id !== id) })),
