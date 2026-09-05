@@ -74,6 +74,9 @@ export function createMenuDragHandlers({
       onDragEnd();
     },
     onPanResponderTerminate: () => {
+      const drag = activeDrag.current;
+      if (!drag || drag.id !== menuId) return;
+
       activeDrag.current = null;
       onDragCancel();
     },

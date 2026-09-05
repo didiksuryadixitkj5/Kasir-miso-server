@@ -80,7 +80,7 @@ describe('edit stock menu drag gesture', () => {
       reorderMenus,
     });
 
-    return { activeDrag, handlers, onDragEnd, onDragMove, reorderMenus };
+    return { activeDrag, handlers, onDragCancel, onDragEnd, onDragMove, reorderMenus };
   }
 
   it('moves a menu to the intended target index when the gesture is released', () => {
@@ -118,5 +118,19 @@ describe('edit stock menu drag gesture', () => {
 
     expect(reorderMenus).toHaveBeenCalledWith('es-teh', 2);
     expect(activeDrag.current).toBeNull();
+  });
+
+  it('clears an interrupted drag without reordering the menu', () => {
+    const { activeDrag, handlers, onDragCancel, onDragEnd, reorderMenus } = createGestureFor('mie', 0);
+
+    handlers.onPanResponderGrant();
+    handlers.onPanResponderMove({}, { dy: 170, dx: 0 });
+    handlers.onPanResponderTerminate();
+    handlers.onPanResponderRelease({}, { dy: 170, dx: 0 });
+
+    expect(activeDrag.current).toBeNull();
+    expect(onDragCancel).toHaveBeenCalledOnce();
+    expect(onDragEnd).not.toHaveBeenCalled();
+    expect(reorderMenus).not.toHaveBeenCalled();
   });
 });
