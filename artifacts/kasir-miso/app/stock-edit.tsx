@@ -9,6 +9,7 @@ import { useColors } from '@/hooks/useColors';
 import { EmptyState, IconButton, PageHeader, PrimaryButton, Screen, Surface, ThemeActions } from '@/components/WarungUI';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 import { persistImageAsset } from '@/utils/persistentImage';
+import { createMenuDragHandlers } from '@/domain/menuDrag';
 
 type EditSection = 'menus' | 'ingredients' | 'consignments';
 
@@ -190,45 +191,29 @@ export default function StockEditScreen() {
 
   const menuPanResponders = useMemo(() => new Map(
     menus.map((menu, index) => {
-      const responder = PanResponder.create({
-        onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_, gesture) => (
-          Math.abs(gesture.dy) > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx)
-        ),
-        onPanResponderGrant: () => {
-          activeDrag.current = { id: menu.id, index };
+      const responder = PanResponder.create(createMenuDragHandlers({
+        menus,
+        menuId: menu.id,
+        menuIndex: index,
+        menuLayouts: menuLayouts.current,
+        activeDrag,
+        onDragStart: () => {
           setDraggingMenuId(menu.id);
           setDragOffset(0);
           void Haptics.selectionAsync().catch(() => undefined);
         },
-        onPanResponderMove: (_, gesture) => {
-          if (activeDrag.current?.id === menu.id) setDragOffset(gesture.dy);
-        },
-        onPanResponderRelease: (_, gesture) => {
-          const drag = activeDrag.current;
-          if (!drag || drag.id !== menu.id) return;
-          const layout = menuLayouts.current[menu.id];
-          const pointerY = (layout?.y ?? drag.index * 77) + (layout?.height ?? 68) / 2 + gesture.dy;
-          let targetIndex = 0;
-          menus.forEach((candidate, candidateIndex) => {
-            const candidateLayout = menuLayouts.current[candidate.id];
-            const centerY = (candidateLayout?.y ?? candidateIndex * 77) + (candidateLayout?.height ?? 68) / 2;
-            if (pointerY > centerY) targetIndex = candidateIndex;
-          });
-          reorderMenus(menu.id, Math.max(0, Math.min(menus.length - 1, targetIndex)));
-          activeDrag.current = null;
+        onDragMove: (dy) => setDragOffset(dy),
+        onDragEnd: () => {
           setDraggingMenuId(null);
           setDragOffset(0);
           void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
         },
-        onPanResponderTerminate: () => {
-          activeDrag.current = null;
+        onDragCancel: () => {
           setDraggingMenuId(null);
           setDragOffset(0);
         },
-        onPanResponderTerminationRequest: () => false,
-        onShouldBlockNativeResponder: () => true,
-      });
+        reorderMenus,
+      }));
       return [menu.id, responder] as const;
     }),
   ), [menus, reorderMenus]);

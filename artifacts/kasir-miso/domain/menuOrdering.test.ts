@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ConsignmentItem, MenuItem, WarungState } from '@/context/WarungContext';
 import { buildCatalogItems } from './menuCatalog';
+import { createMenuDragHandlers, type ActiveMenuDrag } from './menuDrag';
 import {
   hydrateWarungState,
   reorderMenuItems,
@@ -49,5 +50,73 @@ describe('menu order persistence', () => {
     expect(restoredState.menus.map((menu) => menu.id)).toEqual(['es-teh', 'mie', 'bakso']);
     expect(dapurCatalog.map((menu) => menu.id)).toEqual(['es-teh', 'mie', 'bakso']);
     expect(dapurCatalog.map((menu) => menu.name)).toEqual(['Es Teh', 'Mie Ayam', 'Bakso']);
+  });
+});
+
+describe('edit stock menu drag gesture', () => {
+  const layouts = {
+    mie: { y: 0, height: 68 },
+    bakso: { y: 77, height: 68 },
+    'es-teh': { y: 154, height: 68 },
+  };
+
+  function createGestureFor(menuId: string, menuIndex: number) {
+    const activeDrag: ActiveMenuDrag = { current: null };
+    const reorderMenus = vi.fn();
+    const onDragStart = vi.fn();
+    const onDragMove = vi.fn();
+    const onDragEnd = vi.fn();
+    const onDragCancel = vi.fn();
+    const handlers = createMenuDragHandlers({
+      menus,
+      menuId,
+      menuIndex,
+      menuLayouts: layouts,
+      activeDrag,
+      onDragStart,
+      onDragMove,
+      onDragEnd,
+      onDragCancel,
+      reorderMenus,
+    });
+
+    return { activeDrag, handlers, onDragEnd, onDragMove, reorderMenus };
+  }
+
+  it('moves a menu to the intended target index when the gesture is released', () => {
+    const { activeDrag, handlers, onDragEnd, onDragMove, reorderMenus } = createGestureFor('mie', 0);
+
+    expect(handlers.onMoveShouldSetPanResponder({}, { dy: 4, dx: 0 })).toBe(false);
+    expect(handlers.onMoveShouldSetPanResponder({}, { dy: 20, dx: 30 })).toBe(false);
+    expect(handlers.onMoveShouldSetPanResponder({}, { dy: 20, dx: 2 })).toBe(true);
+
+    handlers.onPanResponderGrant();
+    handlers.onPanResponderMove({}, { dy: 170, dx: 0 });
+    handlers.onPanResponderRelease({}, { dy: 170, dx: 0 });
+
+    expect(onDragMove).toHaveBeenCalledWith(170);
+    expect(reorderMenus).toHaveBeenCalledWith('mie', 2);
+    expect(onDragEnd).toHaveBeenCalledOnce();
+    expect(activeDrag.current).toBeNull();
+  });
+
+  it('clamps a release above the first item to the first index', () => {
+    const { activeDrag, handlers, reorderMenus } = createGestureFor('mie', 0);
+
+    handlers.onPanResponderGrant();
+    handlers.onPanResponderRelease({}, { dy: -500, dx: 0 });
+
+    expect(reorderMenus).toHaveBeenCalledWith('mie', 0);
+    expect(activeDrag.current).toBeNull();
+  });
+
+  it('clamps a release below the last item to the last index', () => {
+    const { activeDrag, handlers, reorderMenus } = createGestureFor('es-teh', 2);
+
+    handlers.onPanResponderGrant();
+    handlers.onPanResponderRelease({}, { dy: 500, dx: 0 });
+
+    expect(reorderMenus).toHaveBeenCalledWith('es-teh', 2);
+    expect(activeDrag.current).toBeNull();
   });
 });
