@@ -24,20 +24,23 @@ export function getMenuDropIndex(
   const draggedIndex = menus.findIndex((menu) => menu.id === draggedId);
   if (draggedIndex < 0 || menus.length === 0) return 0;
 
-  const draggedLayout = menuLayouts[draggedId];
-  const pointerY = (draggedLayout?.y ?? draggedIndex * 77)
-    + (draggedLayout?.height ?? 68) / 2
-    + gestureDy;
-  let targetIndex = 0;
-
-  menus.forEach((candidate, candidateIndex) => {
-    const candidateLayout = menuLayouts[candidate.id];
-    const centerY = (candidateLayout?.y ?? candidateIndex * 77)
-      + (candidateLayout?.height ?? 68) / 2;
-    if (pointerY > centerY) targetIndex = candidateIndex;
-  });
+  const draggedCenterY = getMenuCenterY(menuLayouts[draggedId], draggedIndex);
+  const releaseY = draggedCenterY + gestureDy;
+  const targetIndex = menus.reduce((currentTarget, candidate, candidateIndex) => (
+    releaseY > getMenuCenterY(menuLayouts[candidate.id], candidateIndex)
+      ? candidateIndex
+      : currentTarget
+  ), 0);
 
   return Math.max(0, Math.min(menus.length - 1, targetIndex));
+}
+
+const DEFAULT_MENU_HEIGHT = 68;
+const DEFAULT_MENU_STEP = 77;
+
+function getMenuCenterY(layout: MenuLayout | undefined, index: number) {
+  const fallbackY = index * DEFAULT_MENU_STEP;
+  return (layout?.y ?? fallbackY) + (layout?.height ?? DEFAULT_MENU_HEIGHT) / 2;
 }
 
 export function createMenuDragHandlers({

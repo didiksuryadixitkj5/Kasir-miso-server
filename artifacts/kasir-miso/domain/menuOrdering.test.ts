@@ -120,6 +120,71 @@ describe('edit stock menu drag gesture', () => {
     expect(activeDrag.current).toBeNull();
   });
 
+  it('uses each card center when card heights are different', () => {
+    const unevenLayouts = {
+      mie: { y: 0, height: 116 },
+      bakso: { y: 125, height: 52 },
+      'es-teh': { y: 186, height: 124 },
+    };
+    const activeDrag: ActiveMenuDrag = { current: null };
+    const reorderMenus = vi.fn();
+    const handlers = createMenuDragHandlers({
+      menus,
+      menuId: 'mie',
+      menuIndex: 0,
+      menuLayouts: unevenLayouts,
+      activeDrag,
+      onDragStart: vi.fn(),
+      onDragMove: vi.fn(),
+      onDragEnd: vi.fn(),
+      onDragCancel: vi.fn(),
+      reorderMenus,
+    });
+
+    // The release point is y=181, in the gap after Bakso and before Es Teh.
+    handlers.onPanResponderGrant();
+    handlers.onPanResponderRelease({}, { dy: 123, dx: 0 });
+
+    expect(reorderMenus).toHaveBeenCalledWith('mie', 1);
+  });
+
+  it('keeps uneven-layout releases clamped to the first and last index', () => {
+    const unevenLayouts = {
+      mie: { y: 0, height: 116 },
+      bakso: { y: 125, height: 52 },
+      'es-teh': { y: 186, height: 124 },
+    };
+
+    const createUnevenGesture = (menuId: string, menuIndex: number) => {
+      const activeDrag: ActiveMenuDrag = { current: null };
+      const reorderMenus = vi.fn();
+      const handlers = createMenuDragHandlers({
+        menus,
+        menuId,
+        menuIndex,
+        menuLayouts: unevenLayouts,
+        activeDrag,
+        onDragStart: vi.fn(),
+        onDragMove: vi.fn(),
+        onDragEnd: vi.fn(),
+        onDragCancel: vi.fn(),
+        reorderMenus,
+      });
+      return { handlers, reorderMenus };
+    };
+
+    const first = createUnevenGesture('mie', 0);
+    first.handlers.onPanResponderGrant();
+    first.handlers.onPanResponderRelease({}, { dy: -500, dx: 0 });
+
+    const last = createUnevenGesture('es-teh', 2);
+    last.handlers.onPanResponderGrant();
+    last.handlers.onPanResponderRelease({}, { dy: 500, dx: 0 });
+
+    expect(first.reorderMenus).toHaveBeenCalledWith('mie', 0);
+    expect(last.reorderMenus).toHaveBeenCalledWith('es-teh', 2);
+  });
+
   it('clears an interrupted drag without reordering the menu', () => {
     const { activeDrag, handlers, onDragCancel, onDragEnd, reorderMenus } = createGestureFor('mie', 0);
 
