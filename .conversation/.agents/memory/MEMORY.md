@@ -1,3 +1,0 @@
-- [Google account switching](google-account-switching.md) — account changes require an account chooser and must never reuse a different account's Drive refresh token.
-- [Node-testable mobile provider policies](provider-test-boundaries.md) — keep native provider setup separate from pure account, logout, and backup metadata rules for Vitest coverage.
-- [GitHub repository imports](github-repository-imports.md) — use paced authenticated tree/blob requests when archive downloads are blocked.
