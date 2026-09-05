@@ -3,6 +3,7 @@ import { Alert, Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
+import { buildCatalogItems, CatalogItem } from '@/domain/menuCatalog';
 import {
   ActiveOrder,
   consignmentIdFromKey,
@@ -16,7 +17,6 @@ import {
 import { PrimaryButton, SectionHeader, Surface } from '@/components/WarungUI';
 
 const standardMenuImage = require('../assets/images/icon.png');
-type CatalogItem = { id: string; name: string; price: number; category: string; imageUri?: string; isConsignment?: boolean };
 
 interface OrderComposerProps {
   targetOrder?: ActiveOrder | null;
@@ -42,17 +42,7 @@ export function OrderComposer({ targetOrder = null, onComplete, onCancel }: Orde
   const [availableTableCount, setAvailableTableCount] = useState(Math.max(3, targetOrder?.tables.length ?? 0));
   const isAdding = Boolean(targetOrder);
 
-  const catalogItems: CatalogItem[] = [
-    ...menus.map((menu) => ({ ...menu, category: menu.category || 'Lainnya' })),
-    ...consignments.map((item) => ({
-      id: consignmentKey(item.id),
-      name: item.name,
-      price: item.sellPrice,
-      category: 'Titipan',
-      imageUri: item.imageUri,
-      isConsignment: true,
-    })),
-  ];
+  const catalogItems: CatalogItem[] = buildCatalogItems(menus, consignments);
   const menuCategories = ['Semua', ...Array.from(new Set(catalogItems.map((menu) => menu.category)))];
   const visibleMenus = catalogItems.filter((menu) => menuCategory === 'Semua' || menu.category === menuCategory);
   const draftTotal = cart.reduce(

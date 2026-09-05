@@ -2,6 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import { persistImageUri } from '@/utils/persistentImage';
 import { appendOrderItems, cancelActiveOrder, submitOrder } from '@/domain/warungTransactions';
+import {
+  createDefaultWarungState,
+  hydrateWarungState,
+  reorderMenuItems,
+  WARUNG_STATE_STORAGE_KEY,
+} from '@/domain/menuOrdering';
 
 export type MenuKey = string;
 export type PaymentMethod = 'Tunai' | 'QRIS';
@@ -129,65 +135,18 @@ interface ContextValue extends WarungState {
 }
 const WarungContext = createContext<ContextValue | null>(null);
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-const defaultState: WarungState = {
-  menus: [],
-  activeOrders: [],
-  kitchenOrders: [],
-  inventory: [], consignments: [], expenses: [], sales: [], savingsRules: [], savingsEntries: [], qrisImageUri: undefined,
-};
 export function WarungProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<WarungState>(defaultState);
+  const [state, setState] = useState<WarungState>(createDefaultWarungState);
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     let mounted = true;
-    AsyncStorage.getItem('warung-state-v2')
-      .then(async raw => {
-        if (!mounted) return;
-        if (raw) {
-          try {
-            const saved = JSON.parse(raw) as Partial<WarungState>;
-            const savedKitchenOrders = Array.isArray(saved.kitchenOrders) ? saved.kitchenOrders : [];
-            const savedActiveOrders = Array.isArray(saved.activeOrders) ? saved.activeOrders : [];
-            const normalizedActiveOrders = savedActiveOrders.map(order => ({
-              ...order,
-              cooked: typeof order.cooked === 'boolean'
-                ? order.cooked
-                : !savedKitchenOrders.some(kitchenOrder => kitchenOrder.id === order.id),
-            }));
-            const menus = Array.isArray(saved.menus)
-              ? await Promise.all(saved.menus.map(async (menu) => ({
-                ...menu,
-                imageUri: await persistImageUri(menu.imageUri),
-              })))
-              : [];
-            const consignments = Array.isArray(saved.consignments)
-              ? await Promise.all(saved.consignments.map(async (item) => ({
-                ...item,
-                imageUri: await persistImageUri(item.imageUri),
-              })))
-              : [];
-            const qrisImageUri = await persistImageUri(saved.qrisImageUri);
-            setState({
-              ...defaultState,
-              ...saved,
-              menus,
-               activeOrders: normalizedActiveOrders,
-               kitchenOrders: savedKitchenOrders,
-              inventory: Array.isArray(saved.inventory) ? saved.inventory : [],
-              consignments: consignments.map((item) => ({ ...item, packSize: Number(item.packSize) > 0 ? Number(item.packSize) : 1 })),
-              expenses: Array.isArray(saved.expenses) ? saved.expenses : [],
-              sales: Array.isArray(saved.sales) ? saved.sales : [],
-              savingsRules: Array.isArray(saved.savingsRules) ? saved.savingsRules : [],
-              savingsEntries: Array.isArray(saved.savingsEntries) ? saved.savingsEntries : [],
-              qrisImageUri,
-            });
-          } catch {
-            setState(defaultState);
-          }
-        }
+    AsyncStorage.getItem(WARUNG_STATE_STORAGE_KEY)
+      .then((raw) => hydrateWarungState(raw, persistImageUri))
+      .then((nextState) => {
+        if (mounted) setState(nextState);
       })
       .catch(() => {
-        if (mounted) setState(defaultState);
+        if (mounted) setState(createDefaultWarungState());
       })
       .finally(() => {
         if (mounted) setHydrated(true);
@@ -195,7 +154,7 @@ export function WarungProvider({ children }: { children: ReactNode }) {
     return () => { mounted = false; };
   }, []);
   useEffect(() => {
-    if (hydrated) void AsyncStorage.setItem('warung-state-v2', JSON.stringify(state));
+    if (hydrated) void AsyncStorage.setItem(WARUNG_STATE_STORAGE_KEY, JSON.stringify(state));
   }, [hydrated, state]);
   const value = useMemo<ContextValue>(() => ({
     ...state,
@@ -203,15 +162,10 @@ export function WarungProvider({ children }: { children: ReactNode }) {
     addMenu: (name, price, recipe = {}, category = 'Lainnya', imageUri) => setState(s => ({ ...s, menus: [...s.menus, { id: makeId(), name, price, recipe, category, imageUri }] })),
     updateMenu: (id, name, price, recipe = {}, category = 'Lainnya', imageUri) => setState(s => ({ ...s, menus: s.menus.map(item => item.id === id ? { ...item, name, price, recipe, category, imageUri } : item) })),
     deleteMenu: id => setState(s => ({ ...s, menus: s.menus.filter(item => item.id !== id) })),
-     reorderMenus: (id, toIndex) => setState(s => {
-       const fromIndex = s.menus.findIndex(item => item.id === id);
-       if (fromIndex < 0 || toIndex < 0 || toIndex >= s.menus.length || fromIndex === toIndex) return s;
-       const menus = [...s.menus];
-       const [moved] = menus.splice(fromIndex, 1);
-       if (!moved) return s;
-       menus.splice(toIndex, 0, moved);
-       return { ...s, menus };
-     }),
+      reorderMenus: (id, toIndex) => setState(s => {
+        const menus = reorderMenuItems(s.menus, id, toIndex);
+        return menus === s.menus ? s : { ...s, menus };
+      }),
     addInventoryItem: (name, unit, qty, safe) => setState(s => ({ ...s, inventory: [...s.inventory, { id: makeId(), name, unit, qty, safe }] })),
      updateInventoryItem: (id, name, unit, qty, safe) => setState(s => ({ ...s, inventory: s.inventory.map(item => item.id === id ? { ...item, name, unit, qty, safe } : item) })),
      deleteInventoryItem: id => setState(s => ({ ...s, inventory: s.inventory.filter(item => item.id !== id) })),
