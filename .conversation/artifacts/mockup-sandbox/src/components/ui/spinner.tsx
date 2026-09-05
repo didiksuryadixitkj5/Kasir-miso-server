@@ -1,0 +1,19 @@
+import { Loader2Icon } from "lucide-react"
+
+import { cn } from "@/lib/utils"
+
+function Spinner({ className, ref, ...props }: React.ComponentProps<"svg">) {
+  return (
+    <Loader2Icon
+      role="status"
+      aria-label="Loading"
+      className={cn("size-4 animate-spin", className)}
+      // lucide-react resolves a second React type package in this workspace.
+      // Normalize the forwarded ref without changing its runtime behavior.
+      ref={ref as unknown as React.ComponentProps<typeof Loader2Icon>["ref"]}
+      {...props}
+    />
+  )
+}
+
+export { Spinner }
