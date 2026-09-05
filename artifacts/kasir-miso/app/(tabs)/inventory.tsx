@@ -1,8 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Alert, Image, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams } from 'expo-router';
 import { useWarung } from '@/context/WarungContext';
 import { useColors } from '@/hooks/useColors';
 import { EmptyState, IconButton, PageHeader, PrimaryButton, Screen, SectionHeader, Surface, ThemeActions } from '@/components/WarungUI';
@@ -13,14 +12,10 @@ type StockSection = 'overview' | 'menus' | 'ingredients' | 'consignments';
 
 export default function InventoryScreen() {
   const c = useColors();
-  const { menus, inventory, consignments, addMenu, updateMenu, deleteMenu, addInventoryItem, updateInventoryItem, deleteInventoryItem, addStock, removeStock, addConsignment, updateConsignment, deleteConsignment, addConsignmentStock, removeConsignmentStock } = useWarung();
+  const { menus, inventory, consignments, addMenu, deleteMenu, addInventoryItem, deleteInventoryItem, addStock, removeStock, addConsignment, deleteConsignment, addConsignmentStock, removeConsignmentStock } = useWarung();
   const [section, setSection] = useState<StockSection>('overview');
-  const routeParams = useLocalSearchParams<{ section?: string; edit?: string }>();
-  const handledRouteKey = useRef('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
   const [stockOpen, setStockOpen] = useState(false);
-  const [editingStockId, setEditingStockId] = useState<string | null>(null);
   const [menuName, setMenuName] = useState('');
   const [menuPrice, setMenuPrice] = useState('');
   const [menuCategory, setMenuCategory] = useState('Bakso');
@@ -31,34 +26,25 @@ export default function InventoryScreen() {
   const [stockQty, setStockQty] = useState('');
   const [safe, setSafe] = useState('');
   const [consignmentOpen, setConsignmentOpen] = useState(false);
-  const [editingConsignmentId, setEditingConsignmentId] = useState<string | null>(null);
   const [consignmentName, setConsignmentName] = useState('');
   const [consignmentCost, setConsignmentCost] = useState('');
   const [consignmentSellPrice, setConsignmentSellPrice] = useState('');
   const [consignmentPackSize, setConsignmentPackSize] = useState('10');
   const [consignmentQty, setConsignmentQty] = useState('');
-  const [consignmentRemainder, setConsignmentRemainder] = useState(0);
   const [consignmentImageUri, setConsignmentImageUri] = useState<string | undefined>();
+  const editingMenuId = null;
+  const editingStockId = null;
+  const editingConsignmentId = null;
   const lowCount = inventory.filter((item) => item.qty <= item.safe).length;
-  const resetMenu = () => { setMenuName(''); setMenuPrice(''); setMenuCategory('Bakso'); setMenuImageUri(undefined); setRecipeDraft({}); setEditingMenuId(null); setMenuOpen(false); };
-  const resetStock = () => { setStockName(''); setUnit(''); setStockQty(''); setSafe(''); setEditingStockId(null); setStockOpen(false); };
-  const resetConsignment = () => { setConsignmentName(''); setConsignmentCost(''); setConsignmentSellPrice(''); setConsignmentPackSize('10'); setConsignmentQty(''); setConsignmentRemainder(0); setConsignmentImageUri(undefined); setEditingConsignmentId(null); setConsignmentOpen(false); };
+  const resetMenu = () => { setMenuName(''); setMenuPrice(''); setMenuCategory('Bakso'); setMenuImageUri(undefined); setRecipeDraft({}); setMenuOpen(false); };
+  const resetStock = () => { setStockName(''); setUnit(''); setStockQty(''); setSafe(''); setStockOpen(false); };
+  const resetConsignment = () => { setConsignmentName(''); setConsignmentCost(''); setConsignmentSellPrice(''); setConsignmentPackSize('10'); setConsignmentQty(''); setConsignmentImageUri(undefined); setConsignmentOpen(false); };
   const saveMenu = () => {
     const price = Number(menuPrice);
     if (!menuName.trim() || !Number.isFinite(price) || price <= 0) return Alert.alert('Menu belum lengkap', 'Isi nama dan harga menu dengan benar.');
     const recipe = Object.fromEntries(Object.entries(recipeDraft).filter(([, quantity]) => Number(quantity) > 0).map(([id, quantity]) => [id, Number(quantity)]));
-    if (editingMenuId) updateMenu(editingMenuId, menuName.trim(), price, recipe, menuCategory.trim() || 'Lainnya', menuImageUri);
-    else addMenu(menuName.trim(), price, recipe, menuCategory.trim() || 'Lainnya', menuImageUri);
+    addMenu(menuName.trim(), price, recipe, menuCategory.trim() || 'Lainnya', menuImageUri);
     resetMenu();
-  };
-  const editMenu = (menu: typeof menus[number]) => {
-    setEditingMenuId(menu.id);
-    setMenuName(menu.name);
-    setMenuPrice(String(menu.price));
-    setMenuCategory(menu.category || 'Lainnya');
-    setMenuImageUri(menu.imageUri);
-    setRecipeDraft(Object.fromEntries(Object.entries(menu.recipe).map(([id, quantity]) => [id, String(quantity)])));
-    setMenuOpen(true);
   };
   const updateRecipeQuantity = (id: string, delta: number) => {
     setRecipeDraft((current) => {
@@ -86,34 +72,14 @@ export default function InventoryScreen() {
     if (!stockName.trim() || !unit.trim() || !Number.isFinite(quantity) || !Number.isFinite(safeQuantity) || quantity < 0 || safeQuantity < 0) {
       return Alert.alert('Stok belum lengkap', 'Isi nama, satuan, jumlah, dan batas aman dengan benar.');
     }
-    if (inventory.some((item) => item.id !== editingStockId && item.name.trim().toLocaleLowerCase() === stockName.trim().toLocaleLowerCase())) {
+    if (inventory.some((item) => item.name.trim().toLocaleLowerCase() === stockName.trim().toLocaleLowerCase())) {
       return Alert.alert('Bahan sudah ada', 'Gunakan tombol tambah pada bahan yang sudah terdaftar untuk menambah jumlahnya.');
     }
-    if (editingStockId) updateInventoryItem(editingStockId, stockName.trim(), unit.trim(), quantity, safeQuantity);
-    else addInventoryItem(stockName.trim(), unit.trim(), quantity, safeQuantity);
+    addInventoryItem(stockName.trim(), unit.trim(), quantity, safeQuantity);
     resetStock();
   };
   const confirmDelete = (id: string, name: string) => Alert.alert('Hapus menu?', `${name} tidak akan muncul di kasir lagi.`, [{ text: 'Batal', style: 'cancel' }, { text: 'Hapus', style: 'destructive', onPress: () => deleteMenu(id) }]);
-  const editStock = (item: typeof inventory[number]) => {
-    setEditingStockId(item.id);
-    setStockName(item.name);
-    setUnit(item.unit);
-    setStockQty(String(item.qty));
-    setSafe(String(item.safe));
-    setStockOpen(true);
-  };
-  const confirmDeleteStock = (id: string, name: string) => Alert.alert('Hapus bahan?', `${name} akan dihapus dari daftar bahan baku.`, [{ text: 'Batal', style: 'cancel' }, { text: 'Hapus', style: 'destructive', onPress: () => { deleteInventoryItem(id); setEditingStockId(null); } }]);
-  const editConsignment = (item: typeof consignments[number]) => {
-    setEditingConsignmentId(item.id);
-    setConsignmentName(item.name);
-    setConsignmentCost(String(item.cost));
-    setConsignmentSellPrice(String(item.sellPrice));
-    setConsignmentPackSize(String(item.packSize || 1));
-    setConsignmentQty(String(Math.floor(item.qty / (item.packSize || 1))));
-    setConsignmentRemainder(item.qty % (item.packSize || 1));
-    setConsignmentImageUri(item.imageUri);
-    setConsignmentOpen(true);
-  };
+  const confirmDeleteStock = (id: string, name: string) => Alert.alert('Hapus bahan?', `${name} akan dihapus dari daftar bahan baku.`, [{ text: 'Batal', style: 'cancel' }, { text: 'Hapus', style: 'destructive', onPress: () => deleteInventoryItem(id) }]);
   const uploadConsignmentImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.85, base64: true });
@@ -134,34 +100,11 @@ export default function InventoryScreen() {
     }
     // The form edits whole packs. Keep pieces already sold from a partial pack
     // instead of silently rounding the saved stock down on an unrelated edit.
-    const quantity = packCount * packSize + (editingConsignmentId ? consignmentRemainder : 0);
-    if (editingConsignmentId) updateConsignment(editingConsignmentId, consignmentName.trim(), cost, sellPrice, quantity, packSize, consignmentImageUri);
-    else addConsignment(consignmentName.trim(), cost, sellPrice, quantity, packSize, consignmentImageUri);
+    const quantity = packCount * packSize;
+    addConsignment(consignmentName.trim(), cost, sellPrice, quantity, packSize, consignmentImageUri);
     resetConsignment();
   };
   const confirmDeleteConsignment = (id: string, name: string) => Alert.alert('Hapus titipan?', `${name} akan dihapus dari daftar titipan.`, [{ text: 'Batal', style: 'cancel' }, { text: 'Hapus', style: 'destructive', onPress: () => deleteConsignment(id) }]);
-  const routeSection = routeParams.section as StockSection | undefined;
-  const routeEditId = routeParams.edit;
-
-  useEffect(() => {
-    if (!routeSection || !['overview', 'menus', 'ingredients', 'consignments'].includes(routeSection)) return;
-    const routeKey = `${routeSection}:${routeEditId || ''}`;
-    if (handledRouteKey.current === routeKey) return;
-    handledRouteKey.current = routeKey;
-    setSection(routeSection);
-
-    if (!routeEditId) return;
-    if (routeSection === 'menus') {
-      const menu = menus.find((item) => item.id === routeEditId);
-      if (menu) editMenu(menu);
-    } else if (routeSection === 'ingredients') {
-      const item = inventory.find((candidate) => candidate.id === routeEditId);
-      if (item) editStock(item);
-    } else if (routeSection === 'consignments') {
-      const item = consignments.find((candidate) => candidate.id === routeEditId);
-      if (item) editConsignment(item);
-    }
-  }, [consignments, inventory, menus, routeEditId, routeSection]);
 
   const getRemainingPortions = (recipe: Record<string, number>) => {
     const ingredients = Object.entries(recipe);

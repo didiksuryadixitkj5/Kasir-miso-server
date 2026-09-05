@@ -361,7 +361,7 @@ export default function OtherScreen() {
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow icon="people-outline" label="Kelola Staf" onPress={() => router.push('/staff')} />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
-        <MenuRow icon="cube-outline" label="Edit data stok" detail="Kelola menu, bahan baku, dan barang titipan" onPress={() => router.push('/inventory')} />
+        <MenuRow icon="cube-outline" label="Edit data stok" detail="Kelola menu, bahan baku, dan barang titipan" onPress={() => router.push('/stock-edit')} />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow icon="wallet-outline" label="Akun Kas & Bank" onPress={() => showComingSoon('Akun kas & bank')} />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
