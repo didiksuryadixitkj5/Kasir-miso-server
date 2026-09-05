@@ -219,10 +219,6 @@ export default function OtherScreen() {
     }
   };
 
-  const openStockEditor = (section: 'menus' | 'ingredients' | 'consignments', id: string) => {
-    router.push({ pathname: '/inventory', params: { section, edit: id } });
-  };
-
   const handleRestoreOnline = () => {
     if (!hasDriveAccess) {
       setNotice('Hubungkan akun Google Drive sebelum memulihkan backup.');
@@ -359,53 +355,13 @@ export default function OtherScreen() {
         </View>
       </Pressable>
 
-      <Text style={[s.groupTitle, { color: c.mutedForeground }]}>Edit data stok</Text>
-      <Surface style={s.menuCard}>
-        <Text style={[s.catalogLabel, { color: c.mutedForeground }]}>MENU</Text>
-        {warung.menus.length ? warung.menus.map((menu, index) => (
-          <React.Fragment key={menu.id}>
-            <MenuRow
-              icon="restaurant-outline"
-              label={`Edit menu · ${menu.name}`}
-              detail={menu.category || 'Lainnya'}
-              onPress={() => openStockEditor('menus', menu.id)}
-            />
-            {index < warung.menus.length - 1 ? <View style={[s.rowDivider, { backgroundColor: c.border }]} /> : null}
-          </React.Fragment>
-        )) : <Text style={[s.emptyCatalog, { color: c.mutedForeground }]}>Belum ada menu untuk diedit.</Text>}
-        <View style={[s.rowDivider, { backgroundColor: c.border }]} />
-        <Text style={[s.catalogLabel, { color: c.mutedForeground }]}>BAHAN BAKU</Text>
-        {warung.inventory.length ? warung.inventory.map((item, index) => (
-          <React.Fragment key={item.id}>
-            <MenuRow
-              icon="cube-outline"
-              label={`Edit bahan · ${item.name}`}
-              detail={`${item.qty} ${item.unit} · batas aman ${item.safe}`}
-              onPress={() => openStockEditor('ingredients', item.id)}
-            />
-            {index < warung.inventory.length - 1 ? <View style={[s.rowDivider, { backgroundColor: c.border }]} /> : null}
-          </React.Fragment>
-        )) : <Text style={[s.emptyCatalog, { color: c.mutedForeground }]}>Belum ada bahan untuk diedit.</Text>}
-        <View style={[s.rowDivider, { backgroundColor: c.border }]} />
-        <Text style={[s.catalogLabel, { color: c.mutedForeground }]}>BARANG TITIPAN</Text>
-        {warung.consignments.length ? warung.consignments.map((item, index) => (
-          <React.Fragment key={item.id}>
-            <MenuRow
-              icon="storefront-outline"
-              label={`Edit titipan · ${item.name}`}
-              detail={`${item.qty} biji · ${item.packSize || 1} biji / plastik`}
-              onPress={() => openStockEditor('consignments', item.id)}
-            />
-            {index < warung.consignments.length - 1 ? <View style={[s.rowDivider, { backgroundColor: c.border }]} /> : null}
-          </React.Fragment>
-        )) : <Text style={[s.emptyCatalog, { color: c.mutedForeground }]}>Belum ada titipan untuk diedit.</Text>}
-      </Surface>
-
       <Text style={[s.groupTitle, { color: c.mutedForeground }]}>Manajemen</Text>
       <Surface style={s.menuCard}>
         <MenuRow icon="business-outline" label="Profil Usaha" onPress={() => router.push('/business-profile')} />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow icon="people-outline" label="Kelola Staf" onPress={() => router.push('/staff')} />
+        <View style={[s.rowDivider, { backgroundColor: c.border }]} />
+        <MenuRow icon="cube-outline" label="Edit data stok" detail="Kelola menu, bahan baku, dan barang titipan" onPress={() => router.push('/inventory')} />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow icon="wallet-outline" label="Akun Kas & Bank" onPress={() => showComingSoon('Akun kas & bank')} />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
@@ -582,8 +538,6 @@ const s = StyleSheet.create({
   accountDetail: { fontSize: 11, marginTop: 4, lineHeight: 15 },
   accountStatus: { width: 31, height: 31, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
   menuCard: { padding: 0, overflow: 'hidden' },
-  catalogLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginTop: 14, marginBottom: 2, marginLeft: 14 },
-  emptyCatalog: { fontSize: 12, paddingHorizontal: 14, paddingVertical: 14 },
   menuRow: { minHeight: 67, paddingHorizontal: 14, paddingVertical: 10, flexDirection: 'row', alignItems: 'center' },
   menuIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 13 },
   menuCopy: { flex: 1, paddingRight: 8 },
