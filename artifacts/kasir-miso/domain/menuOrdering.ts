@@ -29,6 +29,11 @@ export function reorderMenuItems(menus: MenuItem[], id: string, toIndex: number)
 }
 
 type PersistImageUri = (uri?: string) => Promise<string | undefined>;
+type SetStorageItem = (key: string, value: string) => Promise<void>;
+
+export function persistWarungState(state: WarungState, setItem: SetStorageItem) {
+  return setItem(WARUNG_STATE_STORAGE_KEY, JSON.stringify(state));
+}
 
 export async function hydrateWarungState(raw: string | null, persistImageUri: PersistImageUri): Promise<WarungState> {
   if (!raw) return createDefaultWarungState();

@@ -5,6 +5,7 @@ import { appendOrderItems, cancelActiveOrder, submitOrder } from '@/domain/warun
 import {
   createDefaultWarungState,
   hydrateWarungState,
+  persistWarungState,
   reorderMenuItems,
   WARUNG_STATE_STORAGE_KEY,
 } from '@/domain/menuOrdering';
@@ -154,7 +155,7 @@ export function WarungProvider({ children }: { children: ReactNode }) {
     return () => { mounted = false; };
   }, []);
   useEffect(() => {
-    if (hydrated) void AsyncStorage.setItem(WARUNG_STATE_STORAGE_KEY, JSON.stringify(state));
+    if (hydrated) void persistWarungState(state, AsyncStorage.setItem);
   }, [hydrated, state]);
   const value = useMemo<ContextValue>(() => ({
     ...state,

@@ -4,6 +4,7 @@ import { buildCatalogItems } from './menuCatalog';
 import { createMenuDragHandlers, type ActiveMenuDrag } from './menuDrag';
 import {
   hydrateWarungState,
+  persistWarungState,
   reorderMenuItems,
   WARUNG_STATE_STORAGE_KEY,
 } from './menuOrdering';
@@ -31,15 +32,44 @@ function stateWithMenus(menuItems: MenuItem[]): WarungState {
 }
 
 describe('menu order persistence', () => {
-  it('keeps a dragged menu order after storage is rehydrated and used by Dapur', async () => {
+  it('keeps a successful Edit Stok drag after reopening and uses it in Dapur', async () => {
     const storage = new Map<string, string>();
-    const movedMenus = reorderMenuItems(menus, 'es-teh', 0);
+    let currentState = stateWithMenus(menus);
+    const activeDrag: ActiveMenuDrag = { current: null };
+    const reorderMenus = vi.fn((id: string, toIndex: number) => {
+      const nextMenus = reorderMenuItems(currentState.menus, id, toIndex);
+      if (nextMenus === currentState.menus) return;
 
-    expect(movedMenus.map((menu) => menu.id)).toEqual(['es-teh', 'mie', 'bakso']);
+      currentState = { ...currentState, menus: nextMenus };
+      void persistWarungState(currentState, async (key, value) => {
+        storage.set(key, value);
+      });
+    });
+    const handlers = createMenuDragHandlers({
+      menus,
+      menuId: 'mie',
+      menuIndex: 0,
+      menuLayouts: {
+        mie: { y: 0, height: 68 },
+        bakso: { y: 77, height: 68 },
+        'es-teh': { y: 154, height: 68 },
+      },
+      activeDrag,
+      onDragStart: vi.fn(),
+      onDragMove: vi.fn(),
+      onDragEnd: vi.fn(),
+      onDragCancel: vi.fn(),
+      reorderMenus,
+    });
 
-    await Promise.resolve(
-      storage.set(WARUNG_STATE_STORAGE_KEY, JSON.stringify(stateWithMenus(movedMenus))),
-    );
+    handlers.onPanResponderGrant();
+    handlers.onPanResponderMove({}, { dy: 170, dx: 0 });
+    handlers.onPanResponderRelease({}, { dy: 170, dx: 0 });
+
+    expect(reorderMenus).toHaveBeenCalledWith('mie', 2);
+    expect(currentState.menus.map((menu) => menu.id)).toEqual(['bakso', 'es-teh', 'mie']);
+    expect(JSON.parse(storage.get(WARUNG_STATE_STORAGE_KEY) ?? '{}').menus.map((menu: MenuItem) => menu.id))
+      .toEqual(['bakso', 'es-teh', 'mie']);
 
     const restoredState = await hydrateWarungState(
       storage.get(WARUNG_STATE_STORAGE_KEY) ?? null,
@@ -47,9 +77,9 @@ describe('menu order persistence', () => {
     );
     const dapurCatalog = buildCatalogItems(restoredState.menus, restoredState.consignments);
 
-    expect(restoredState.menus.map((menu) => menu.id)).toEqual(['es-teh', 'mie', 'bakso']);
-    expect(dapurCatalog.map((menu) => menu.id)).toEqual(['es-teh', 'mie', 'bakso']);
-    expect(dapurCatalog.map((menu) => menu.name)).toEqual(['Es Teh', 'Mie Ayam', 'Bakso']);
+    expect(restoredState.menus.map((menu) => menu.id)).toEqual(['bakso', 'es-teh', 'mie']);
+    expect(dapurCatalog.map((menu) => menu.id)).toEqual(['bakso', 'es-teh', 'mie']);
+    expect(dapurCatalog.map((menu) => menu.name)).toEqual(['Bakso', 'Es Teh', 'Mie Ayam']);
   });
 });
 
