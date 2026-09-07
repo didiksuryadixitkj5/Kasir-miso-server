@@ -132,7 +132,7 @@ export default function ExpensesScreen() {
         </View>
       }
     >
-      <PageHeader eyebrow="Operasional" title="Pencatatan biaya" subtitle="Satu catatan kecil membantu warung tetap sehat." />
+      <PageHeader eyebrow="Operasional" title="Pencatatan biaya" subtitle="Satu catatan kecil membantu warung tetap sehat." backRoute="/" />
       <View style={s.periodSection}>
         <View style={s.periodHeader}>
           <View>

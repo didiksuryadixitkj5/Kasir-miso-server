@@ -134,6 +134,7 @@ export default function InventoryScreen() {
         eyebrow="Katalog & persediaan"
         title={section === 'overview' ? 'Stok' : section === 'menus' ? 'Daftar menu' : section === 'ingredients' ? 'Bahan baku' : 'Barang titipan'}
         subtitle={section === 'overview' ? 'Akses cepat untuk mengatur semua persediaan warung.' : section === 'menus' ? 'Atur menu yang tampil saat menerima pesanan.' : section === 'ingredients' ? 'Pantau bahan dan batas aman persediaan.' : 'Kelola stok, harga, dan keuntungan barang titipan.'}
+        backRoute="/"
         action={
           <View style={s.inventoryHeaderActions}>
             {section !== 'overview' ? <Pressable accessibilityRole="button" accessibilityLabel="Kembali ke ringkasan stok" onPress={() => setSection('overview')} style={({ pressed }) => [s.backButton, { backgroundColor: c.primaryForeground, opacity: pressed ? 0.72 : 1 }]}><Ionicons name="arrow-back" size={20} color={c.primary} /></Pressable> : null}

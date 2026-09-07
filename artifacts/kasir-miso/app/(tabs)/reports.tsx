@@ -137,7 +137,7 @@ export default function ReportsScreen() {
   const periods: ReportPeriod[] = ['Hari ini', 'Minggu ini', 'Bulan ini'];
   return (
     <Screen>
-      <PageHeader eyebrow="Owner view" title="Laporan warung" subtitle="Lihat uang masuk dan menu yang paling dicari." />
+      <PageHeader eyebrow="Owner view" title="Laporan warung" subtitle="Lihat uang masuk dan menu yang paling dicari." backRoute="/" />
       <View style={s.periods}>{periods.map((item) => <Pressable key={item} onPress={() => setPeriod(item)} style={({ pressed }) => [s.period, { backgroundColor: period === item ? c.primary : c.card, borderColor: period === item ? c.primary : c.border, opacity: pressed ? 0.7 : 1 }]}><Text style={[s.periodText, { color: period === item ? c.primaryForeground : c.mutedForeground }]}>{item}</Text></Pressable>)}</View>
       <Surface tone="ink" style={s.profit}><Text style={[s.profitLabel, { color: c.mutedForeground }]}>UNTUNG BERSIH · {period.toUpperCase()}</Text><Text style={[s.profitValue, { color: c.card }]}>{formatRp(revenue - costs)}</Text><Text style={[s.profitSub, { color: c.mutedForeground }]}>{formatRp(revenue)} penjualan  −  {formatRp(costs)} biaya</Text></Surface>
        <SectionHeader title="Penyisihan dana" meta={formatRp(savingsTotal)} icon="wallet-outline" />

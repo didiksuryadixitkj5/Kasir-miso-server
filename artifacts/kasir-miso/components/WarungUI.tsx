@@ -1,6 +1,7 @@
 import React, { ReactNode } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
@@ -27,17 +28,21 @@ export function Screen({ children, scroll = true, footer, footerBorder = true, f
   );
 }
 
-export function PageHeader({ eyebrow, title, subtitle, action }: { eyebrow: string; title: string; subtitle?: string; action?: ReactNode }) {
+export function PageHeader({ eyebrow, title, subtitle, action, backRoute }: { eyebrow: string; title: string; subtitle?: string; action?: ReactNode; backRoute?: Href }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
   const headerTopInset = insets.top + webTopInset + 18;
   return (
     <View style={[ui.header, { backgroundColor: c.primary, paddingTop: headerTopInset, marginTop: -headerTopInset, borderBottomColor: c.primary }]}>
-      <View style={ui.headerCopy}>
-        <Text style={[ui.eyebrow, { color: c.primaryForeground }]}>{eyebrow}</Text>
-        <Text style={[ui.title, { color: c.primaryForeground }]}>{title}</Text>
-        {subtitle ? <Text style={[ui.subtitle, { color: c.primaryForeground + 'CC' }]}>{subtitle}</Text> : null}
+      <View style={ui.headerLeading}>
+        {backRoute ? <IconButton icon="arrow-back" label="Kembali ke Kasir" onPress={() => router.replace(backRoute)} /> : null}
+        <View style={ui.headerCopy}>
+          <Text style={[ui.eyebrow, { color: c.primaryForeground }]}>{eyebrow}</Text>
+          <Text style={[ui.title, { color: c.primaryForeground }]}>{title}</Text>
+          {subtitle ? <Text style={[ui.subtitle, { color: c.primaryForeground + 'CC' }]}>{subtitle}</Text> : null}
+        </View>
       </View>
       {action ?? <ThemeActions />}
     </View>
@@ -177,6 +182,7 @@ export const ui = StyleSheet.create({
   fixedFooter: { flexShrink: 0, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1 },
   content: { paddingHorizontal: 16, maxWidth: 560, width: '100%', alignSelf: 'center' },
   header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginHorizontal: -16, marginBottom: 22, paddingHorizontal: 16, paddingBottom: 22, borderBottomWidth: 1, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
+  headerLeading: { flex: 1, flexDirection: 'row', alignItems: 'flex-start' },
   headerCopy: { flex: 1, paddingRight: 12 },
   headerActions: { flexDirection: 'row', gap: 8 },
   eyebrow: { fontSize: 10, fontWeight: '800', letterSpacing: 1.7, textTransform: 'uppercase' },

@@ -28,6 +28,7 @@ export default function HistoryScreen() {
         eyebrow="Catatan penjualan"
         title="Riwayat transaksi"
         subtitle="Semua pembayaran yang sudah diterima tersimpan di sini."
+        backRoute="/"
       />
       <View style={s.periods}>
         {periods.map((item) => (
