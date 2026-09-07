@@ -16,6 +16,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { WarungProvider } from '@/context/WarungContext';
+import { NotesProvider } from '@/context/NotesContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { GoogleAccountProvider } from '@/context/GoogleAccountContext';
 import { OnlineBackupProvider } from '@/context/OnlineBackupContext';
@@ -84,15 +85,17 @@ export default function RootLayout() {
         <ThemeProvider>
           <ErrorBoundary>
             <WarungProvider>
-              <GoogleAccountProvider>
-                <OnlineBackupProvider>
-                  <GestureHandlerRootView style={{ flex: 1 }}>
-                    <KeyboardProvider>
-                      <RootLayoutNav />
-                    </KeyboardProvider>
-                  </GestureHandlerRootView>
-                </OnlineBackupProvider>
-              </GoogleAccountProvider>
+              <NotesProvider>
+                <GoogleAccountProvider>
+                  <OnlineBackupProvider>
+                    <GestureHandlerRootView style={{ flex: 1 }}>
+                      <KeyboardProvider>
+                        <RootLayoutNav />
+                      </KeyboardProvider>
+                    </GestureHandlerRootView>
+                  </OnlineBackupProvider>
+                </GoogleAccountProvider>
+              </NotesProvider>
             </WarungProvider>
           </ErrorBoundary>
         </ThemeProvider>
