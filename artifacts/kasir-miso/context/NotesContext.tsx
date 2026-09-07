@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
 export type NoteCategory = 'shopping' | 'carry' | 'general';
+export type ShoppingDay = 'today' | 'tomorrow';
 
 export interface NoteItem {
   id: string;
@@ -12,22 +13,50 @@ export interface NoteItem {
   unit?: string;
 }
 
-type NotesState = Record<NoteCategory, NoteItem[]>;
+interface NotesState {
+  shoppingToday: NoteItem[];
+  shoppingTomorrow: NoteItem[];
+  carry: NoteItem[];
+  general: NoteItem[];
+}
 
 interface NotesContextValue {
   notes: NotesState;
   hydrated: boolean;
   addNote: (category: NoteCategory, text: string) => void;
-  addShoppingItem: (name: string, quantity: number, unit: string) => void;
+  addShoppingItem: (day: ShoppingDay, name: string, quantity: number, unit: string) => void;
   toggleNote: (category: NoteCategory, id: string) => void;
+  toggleShoppingItem: (day: ShoppingDay, id: string) => void;
   deleteNote: (category: NoteCategory, id: string) => void;
-  changeShoppingQuantity: (id: string, delta: number) => void;
+  deleteShoppingItem: (day: ShoppingDay, id: string) => void;
+  changeShoppingQuantity: (day: ShoppingDay, id: string, delta: number) => void;
+  clearShoppingCompleted: (day: ShoppingDay) => void;
   clearCompleted: (category: NoteCategory) => void;
 }
 
 const NOTES_STORAGE_KEY = 'kasir-miso-notes-v1';
-const createEmptyNotes = (): NotesState => ({ shopping: [], carry: [], general: [] });
+const createEmptyNotes = (): NotesState => ({ shoppingToday: [], shoppingTomorrow: [], carry: [], general: [] });
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const dateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+const tomorrowDateKey = () => {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return dateKey(date);
+};
+const listForDay = (state: NotesState, day: ShoppingDay) => day === 'today' ? state.shoppingToday : state.shoppingTomorrow;
+const replaceListForDay = (state: NotesState, day: ShoppingDay, items: NoteItem[]): NotesState => ({
+  ...state,
+  [day === 'today' ? 'shoppingToday' : 'shoppingTomorrow']: items,
+});
+const listForCategory = (state: NotesState, category: NoteCategory) => category === 'carry' ? state.carry : state.general;
+const replaceListForCategory = (state: NotesState, category: NoteCategory, items: NoteItem[]): NotesState => (
+  category === 'carry' ? { ...state, carry: items } : { ...state, general: items }
+);
 const normalizeShoppingItems = (items: unknown): NoteItem[] => (
   Array.isArray(items)
     ? items.map((item) => ({
@@ -49,10 +78,15 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     AsyncStorage.getItem(NOTES_STORAGE_KEY)
       .then((raw) => {
         if (!raw) return;
-        const parsed = JSON.parse(raw) as Partial<NotesState>;
+        const parsed = JSON.parse(raw) as Partial<NotesState> & { shopping?: unknown; shoppingTomorrowDate?: string };
         if (!mounted) return;
+        const legacyShopping = normalizeShoppingItems(parsed.shopping);
+        const savedTomorrow = Array.isArray(parsed.shoppingTomorrow) ? normalizeShoppingItems(parsed.shoppingTomorrow) : legacyShopping;
+        const savedToday = Array.isArray(parsed.shoppingToday) ? normalizeShoppingItems(parsed.shoppingToday) : [];
+        const shouldRollOver = Boolean(parsed.shoppingTomorrowDate && parsed.shoppingTomorrowDate !== tomorrowDateKey());
         setNotes({
-          shopping: normalizeShoppingItems(parsed.shopping),
+          shoppingToday: shouldRollOver ? [...savedTomorrow, ...savedToday] : savedToday,
+          shoppingTomorrow: shouldRollOver ? [] : savedTomorrow,
           carry: Array.isArray(parsed.carry) ? parsed.carry : [],
           general: Array.isArray(parsed.general) ? parsed.general : [],
         });
@@ -68,62 +102,73 @@ export function NotesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (hydrated) void AsyncStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(notes));
+    if (hydrated) void AsyncStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify({ ...notes, shoppingTomorrowDate: tomorrowDateKey() }));
   }, [hydrated, notes]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const rollover = () => {
+      const expectedTomorrow = tomorrowDateKey();
+      void AsyncStorage.getItem(NOTES_STORAGE_KEY).then((raw) => {
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as { shoppingTomorrowDate?: string };
+        if (parsed.shoppingTomorrowDate && parsed.shoppingTomorrowDate !== expectedTomorrow) {
+          setNotes((current) => ({ ...current, shoppingToday: [...current.shoppingTomorrow, ...current.shoppingToday], shoppingTomorrow: [] }));
+        }
+      }).catch(() => undefined);
+    };
+    const timer = setInterval(rollover, 60_000);
+    return () => clearInterval(timer);
+  }, [hydrated]);
 
   const value = useMemo<NotesContextValue>(() => ({
     notes,
     hydrated,
     addNote: (category, text) => {
       const trimmed = text.trim();
-      if (!trimmed) return;
-      setNotes((current) => ({
-        ...current,
-        [category]: [{ id: makeId(), text: trimmed, done: false, createdAt: new Date().toISOString() }, ...current[category]],
-      }));
+      if (!trimmed || category === 'shopping') return;
+      setNotes((current) => replaceListForCategory(current, category, [{ id: makeId(), text: trimmed, done: false, createdAt: new Date().toISOString() }, ...listForCategory(current, category)]));
     },
-    addShoppingItem: (name, quantity, unit) => {
+    addShoppingItem: (day, name, quantity, unit) => {
       const trimmedName = name.trim();
       const trimmedUnit = unit.trim() || 'pcs';
       const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? Math.round(quantity * 100) / 100 : 1;
       if (!trimmedName) return;
       setNotes((current) => {
-        const duplicateIndex = current.shopping.findIndex((item) => !item.done && item.text.toLowerCase() === trimmedName.toLowerCase() && item.unit === trimmedUnit);
+        const shopping = listForDay(current, day);
+        const duplicateIndex = shopping.findIndex((item) => !item.done && item.text.toLowerCase() === trimmedName.toLowerCase() && item.unit === trimmedUnit);
         if (duplicateIndex < 0) {
-          return {
-            ...current,
-            shopping: [{ id: makeId(), text: trimmedName, done: false, createdAt: new Date().toISOString(), quantity: safeQuantity, unit: trimmedUnit }, ...current.shopping],
-          };
+          return replaceListForDay(current, day, [{ id: makeId(), text: trimmedName, done: false, createdAt: new Date().toISOString(), quantity: safeQuantity, unit: trimmedUnit }, ...shopping]);
         }
-        const shopping = [...current.shopping];
-        const duplicate = shopping[duplicateIndex];
-        shopping[duplicateIndex] = { ...duplicate, quantity: (duplicate.quantity ?? 1) + safeQuantity };
-        return { ...current, shopping };
+        const updated = [...shopping];
+        const duplicate = updated[duplicateIndex];
+        updated[duplicateIndex] = { ...duplicate, quantity: (duplicate.quantity ?? 1) + safeQuantity };
+        return replaceListForDay(current, day, updated);
       });
     },
     toggleNote: (category, id) => {
-      setNotes((current) => ({
-        ...current,
-        [category]: current[category].map((item) => item.id === id ? { ...item, done: !item.done } : item),
-      }));
+      if (category === 'shopping') return;
+      setNotes((current) => replaceListForCategory(current, category, listForCategory(current, category).map((item) => item.id === id ? { ...item, done: !item.done } : item)));
+    },
+    toggleShoppingItem: (day, id) => {
+      setNotes((current) => replaceListForDay(current, day, listForDay(current, day).map((item) => item.id === id ? { ...item, done: !item.done } : item)));
     },
     deleteNote: (category, id) => {
-      setNotes((current) => ({
-        ...current,
-        [category]: current[category].filter((item) => item.id !== id),
-      }));
+      if (category === 'shopping') return;
+      setNotes((current) => replaceListForCategory(current, category, listForCategory(current, category).filter((item) => item.id !== id)));
     },
-    changeShoppingQuantity: (id, delta) => {
-      setNotes((current) => ({
-        ...current,
-        shopping: current.shopping.map((item) => item.id === id ? { ...item, quantity: Math.max(1, Math.round(((item.quantity ?? 1) + delta) * 100) / 100) } : item),
-      }));
+    deleteShoppingItem: (day, id) => {
+      setNotes((current) => replaceListForDay(current, day, listForDay(current, day).filter((item) => item.id !== id)));
+    },
+    changeShoppingQuantity: (day, id, delta) => {
+      setNotes((current) => replaceListForDay(current, day, listForDay(current, day).map((item) => item.id === id ? { ...item, quantity: Math.max(1, Math.round(((item.quantity ?? 1) + delta) * 100) / 100) } : item)));
+    },
+    clearShoppingCompleted: (day) => {
+      setNotes((current) => replaceListForDay(current, day, listForDay(current, day).filter((item) => !item.done)));
     },
     clearCompleted: (category) => {
-      setNotes((current) => ({
-        ...current,
-        [category]: current[category].filter((item) => !item.done),
-      }));
+      if (category === 'shopping') return;
+      setNotes((current) => replaceListForCategory(current, category, listForCategory(current, category).filter((item) => !item.done)));
     },
   }), [hydrated, notes]);
 

@@ -2,11 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { EmptyState, PageHeader, Screen, Surface } from '@/components/WarungUI';
-import { NoteCategory, useNotes } from '@/context/NotesContext';
+import { NoteCategory, ShoppingDay, useNotes } from '@/context/NotesContext';
 import { useColors } from '@/hooks/useColors';
 
 const categoryOptions: Array<{ id: NoteCategory; label: string; icon: React.ComponentProps<typeof Ionicons>['name']; helper: string }> = [
-  { id: 'shopping', label: 'Belanja besok', icon: 'cart-outline', helper: 'Yang perlu dibeli untuk operasional besok.' },
+  { id: 'shopping', label: 'Belanja', icon: 'cart-outline', helper: 'Atur kebutuhan belanja hari ini dan besok.' },
   { id: 'carry', label: 'Perlu dibawa', icon: 'bag-handle-outline', helper: 'Barang yang harus dibawa saat berangkat.' },
   { id: 'general', label: 'Catatan biasa', icon: 'create-outline', helper: 'Catatan bebas untuk hal-hal penting.' },
 ];
@@ -14,14 +14,16 @@ const unitOptions = ['pcs', 'kg', 'liter', 'pack'];
 
 export default function NotesScreen() {
   const c = useColors();
-  const { notes, addNote, addShoppingItem, toggleNote, deleteNote, changeShoppingQuantity, clearCompleted } = useNotes();
+  const { notes, addNote, addShoppingItem, toggleNote, toggleShoppingItem, deleteNote, deleteShoppingItem, changeShoppingQuantity, clearShoppingCompleted, clearCompleted } = useNotes();
   const [selected, setSelected] = useState<NoteCategory>('shopping');
+  const [shoppingDay, setShoppingDay] = useState<ShoppingDay>('tomorrow');
   const [draft, setDraft] = useState('');
   const [shoppingName, setShoppingName] = useState('');
   const [shoppingQuantity, setShoppingQuantity] = useState('1');
   const [shoppingUnit, setShoppingUnit] = useState('pcs');
   const option = categoryOptions.find((item) => item.id === selected) ?? categoryOptions[0];
-  const activeNotes = notes[selected];
+  const shoppingItems = shoppingDay === 'today' ? notes.shoppingToday : notes.shoppingTomorrow;
+  const activeNotes = selected === 'shopping' ? shoppingItems : notes[selected];
   const completedCount = activeNotes.filter((item) => item.done).length;
   const pendingNotes = useMemo(() => activeNotes.filter((item) => !item.done), [activeNotes]);
   const completedNotes = useMemo(() => activeNotes.filter((item) => item.done), [activeNotes]);
@@ -35,7 +37,7 @@ export default function NotesScreen() {
   const submitShopping = () => {
     const quantity = Number.parseFloat(shoppingQuantity.replace(',', '.'));
     if (!shoppingName.trim() || !Number.isFinite(quantity) || quantity <= 0) return;
-    addShoppingItem(shoppingName, quantity, shoppingUnit);
+    addShoppingItem(shoppingDay, shoppingName, quantity, shoppingUnit);
     setShoppingName('');
     setShoppingQuantity('1');
   };
@@ -76,6 +78,8 @@ export default function NotesScreen() {
       {selected === 'shopping' ? (
         <ShoppingContent
           items={activeNotes}
+          day={shoppingDay}
+          onDayChange={setShoppingDay}
           name={shoppingName}
           quantity={shoppingQuantity}
           unit={shoppingUnit}
@@ -83,10 +87,10 @@ export default function NotesScreen() {
           onQuantityChange={setShoppingQuantity}
           onUnitChange={setShoppingUnit}
           onSubmit={submitShopping}
-          onToggle={toggleNote}
-          onDelete={deleteNote}
+          onToggle={toggleShoppingItem}
+          onDelete={deleteShoppingItem}
           onChangeQuantity={changeShoppingQuantity}
-          onClear={() => clearCompleted('shopping')}
+          onClear={() => clearShoppingCompleted(shoppingDay)}
         />
       ) : (
       <>
@@ -160,6 +164,7 @@ export default function NotesScreen() {
 }
 
 function ShoppingContent({
+  day,
   items,
   name,
   quantity,
@@ -167,12 +172,14 @@ function ShoppingContent({
   onNameChange,
   onQuantityChange,
   onUnitChange,
+  onDayChange,
   onSubmit,
   onToggle,
   onDelete,
   onChangeQuantity,
   onClear,
 }: {
+  day: ShoppingDay;
   items: Array<{ id: string; text: string; done: boolean; quantity?: number; unit?: string }>;
   name: string;
   quantity: string;
@@ -181,9 +188,10 @@ function ShoppingContent({
   onQuantityChange: (value: string) => void;
   onUnitChange: (value: string) => void;
   onSubmit: () => void;
-  onToggle: (category: NoteCategory, id: string) => void;
-  onDelete: (category: NoteCategory, id: string) => void;
-  onChangeQuantity: (id: string, delta: number) => void;
+  onDayChange: (day: ShoppingDay) => void;
+  onToggle: (day: ShoppingDay, id: string) => void;
+  onDelete: (day: ShoppingDay, id: string) => void;
+  onChangeQuantity: (day: ShoppingDay, id: string, delta: number) => void;
   onClear: () => void;
 }) {
   const c = useColors();
@@ -194,14 +202,31 @@ function ShoppingContent({
 
   return (
     <>
+      <View style={[s.shoppingDayTabs, { backgroundColor: c.secondary }]}>
+        {(['today', 'tomorrow'] as ShoppingDay[]).map((item) => {
+          const active = item === day;
+          return (
+            <Pressable
+              key={item}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+              onPress={() => onDayChange(item)}
+              style={({ pressed }) => [s.shoppingDayTab, { backgroundColor: active ? c.card : 'transparent', opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Text style={[s.shoppingDayLabel, { color: active ? c.foreground : c.mutedForeground }]}>{item === 'today' ? 'Hari ini' : 'Besok'}</Text>
+              <Text style={[s.shoppingDayHint, { color: active ? c.primary : c.mutedForeground }]}>{item === 'today' ? 'Yang dikerjakan' : 'Persiapan awal'}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <View style={[s.shoppingSummary, { backgroundColor: c.foreground }]}>
         <View style={s.shoppingSummaryTop}>
           <View style={s.shoppingSummaryIcon}>
             <Ionicons name="basket-outline" size={21} color={c.primaryForeground} />
           </View>
           <View style={s.shoppingSummaryCopy}>
-            <Text style={[s.shoppingSummaryKicker, { color: c.primaryForeground + 'B8' }]}>Rencana besok</Text>
-            <Text style={[s.shoppingSummaryTitle, { color: c.card }]}>Daftar belanja</Text>
+            <Text style={[s.shoppingSummaryKicker, { color: c.primaryForeground + 'B8' }]}>{day === 'today' ? 'Belanja hari ini' : 'Rencana besok'}</Text>
+            <Text style={[s.shoppingSummaryTitle, { color: c.card }]}>{day === 'today' ? 'Selesaikan belanja' : 'Daftar belanja'}</Text>
           </View>
           <Text style={[s.shoppingSummaryCount, { color: c.primaryForeground }]}>{completed.length}/{items.length}</Text>
         </View>
@@ -209,7 +234,7 @@ function ShoppingContent({
           <View style={[s.progressFill, { backgroundColor: c.primaryForeground, width: `${progress * 100}%` }]} />
         </View>
         <Text style={[s.shoppingSummaryHint, { color: c.primaryForeground + 'B8' }]}>
-          {items.length ? (completed.length === items.length ? 'Semua kebutuhan sudah dibeli.' : `${pending.length} barang masih perlu dibeli.`) : 'Catat kebutuhan warung sebelum berangkat.'}
+          {items.length ? (completed.length === items.length ? 'Semua kebutuhan sudah dibeli.' : `${pending.length} barang masih perlu dibeli.`) : day === 'today' ? 'Belum ada belanja yang dipindahkan ke hari ini.' : 'Catat kebutuhan warung sebelum berangkat.'}
         </Text>
       </View>
 
@@ -270,7 +295,7 @@ function ShoppingContent({
       {pending.length ? (
         <View style={s.shoppingList}>
           {pending.map((item) => (
-            <ShoppingRow key={item.id} item={item} onToggle={onToggle} onDelete={onDelete} onChangeQuantity={onChangeQuantity} />
+            <ShoppingRow key={item.id} item={item} day={day} onToggle={onToggle} onDelete={onDelete} onChangeQuantity={onChangeQuantity} />
           ))}
         </View>
       ) : (
@@ -290,7 +315,7 @@ function ShoppingContent({
             </Pressable>
           </View>
           {completed.map((item) => (
-            <ShoppingRow key={item.id} item={item} onToggle={onToggle} onDelete={onDelete} onChangeQuantity={onChangeQuantity} />
+            <ShoppingRow key={item.id} item={item} day={day} onToggle={onToggle} onDelete={onDelete} onChangeQuantity={onChangeQuantity} />
           ))}
         </View>
       ) : null}
@@ -300,14 +325,16 @@ function ShoppingContent({
 
 function ShoppingRow({
   item,
+  day,
   onToggle,
   onDelete,
   onChangeQuantity,
 }: {
   item: { id: string; text: string; done: boolean; quantity?: number; unit?: string };
-  onToggle: (category: NoteCategory, id: string) => void;
-  onDelete: (category: NoteCategory, id: string) => void;
-  onChangeQuantity: (id: string, delta: number) => void;
+  day: ShoppingDay;
+  onToggle: (day: ShoppingDay, id: string) => void;
+  onDelete: (day: ShoppingDay, id: string) => void;
+  onChangeQuantity: (day: ShoppingDay, id: string, delta: number) => void;
 }) {
   const c = useColors();
   return (
@@ -316,7 +343,7 @@ function ShoppingRow({
         accessibilityRole="checkbox"
         accessibilityState={{ checked: item.done }}
         accessibilityLabel={item.done ? `Tandai ${item.text} belum dibeli` : `Tandai ${item.text} sudah dibeli`}
-        onPress={() => onToggle('shopping', item.id)}
+        onPress={() => onToggle(day, item.id)}
         style={({ pressed }) => [s.shoppingCheck, { backgroundColor: item.done ? c.primary : c.secondary, borderColor: item.done ? c.primary : c.border, opacity: pressed ? 0.7 : 1 }]}
       >
         {item.done ? <Ionicons name="checkmark" size={16} color={c.primaryForeground} /> : null}
@@ -327,16 +354,16 @@ function ShoppingRow({
       </View>
       {!item.done ? (
         <View style={[s.stepper, { backgroundColor: c.secondary }]}>
-          <Pressable onPress={() => onChangeQuantity(item.id, -1)} hitSlop={6} accessibilityLabel={`Kurangi jumlah ${item.text}`}>
+          <Pressable onPress={() => onChangeQuantity(day, item.id, -1)} hitSlop={6} accessibilityLabel={`Kurangi jumlah ${item.text}`}>
             <Ionicons name="remove" size={15} color={c.mutedForeground} />
           </Pressable>
           <Text style={[s.stepperValue, { color: c.foreground }]}>{item.quantity ?? 1}</Text>
-          <Pressable onPress={() => onChangeQuantity(item.id, 1)} hitSlop={6} accessibilityLabel={`Tambah jumlah ${item.text}`}>
+          <Pressable onPress={() => onChangeQuantity(day, item.id, 1)} hitSlop={6} accessibilityLabel={`Tambah jumlah ${item.text}`}>
             <Ionicons name="add" size={15} color={c.primary} />
           </Pressable>
         </View>
       ) : null}
-      <Pressable accessibilityRole="button" accessibilityLabel={`Hapus ${item.text}`} onPress={() => onDelete('shopping', item.id)} hitSlop={8} style={s.deleteButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`Hapus ${item.text}`} onPress={() => onDelete(day, item.id)} hitSlop={8} style={s.deleteButton}>
         <Ionicons name="trash-outline" size={17} color={c.mutedForeground} />
       </Pressable>
     </Surface>
@@ -390,6 +417,10 @@ const s = StyleSheet.create({
   sectionHelper: { fontSize: 11, lineHeight: 16, marginTop: 3 },
   clearButton: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 7 },
   clearButtonText: { fontSize: 10, fontWeight: '800' },
+  shoppingDayTabs: { flexDirection: 'row', borderRadius: 15, padding: 4, marginBottom: 10 },
+  shoppingDayTab: { flex: 1, borderRadius: 11, minHeight: 47, alignItems: 'center', justifyContent: 'center' },
+  shoppingDayLabel: { fontSize: 12, fontWeight: '800' },
+  shoppingDayHint: { fontSize: 9, fontWeight: '700', marginTop: 2 },
   shoppingSummary: { borderRadius: 22, padding: 16, marginBottom: 12 },
   shoppingSummaryTop: { flexDirection: 'row', alignItems: 'center' },
   shoppingSummaryIcon: { width: 40, height: 40, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.16)', alignItems: 'center', justifyContent: 'center' },
