@@ -1,4 +1,4 @@
-
+import React, { useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Image, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -292,7 +292,7 @@ export default function StockEditScreen() {
               <View style={[s.itemIcon, { backgroundColor: c.secondary }]}>{item.imageUri ? <Image source={{ uri: item.imageUri }} style={s.imageFill} /> : <Ionicons name="storefront-outline" size={20} color={c.primary} />}</View>
               <View style={s.flex}><Text style={[s.name, { color: c.foreground }]}>{item.name}</Text><Text style={[s.detail, { color: c.mutedForeground }]}>{item.qty} biji · {item.packSize || 1} biji / plastik</Text></View>
               <IconButton icon="create-outline" label={`Edit ${item.name}`} onPress={() => openConsignment(item)} />
-              <IconButton icon="trash-outline" label={`Hapus ${item.name}`} onPress={() => deleteItem(fecb4e106b19c864a133b26a16398cname)} />
+               <IconButton icon="trash-outline" label={`Hapus ${item.name}`} onPress={() => deleteItem('consignments', item.id, item.name)} />
             </Surface>
           )) : <EmptyState icon="storefront-outline" title="Belum ada barang titipan" body="Tambahkan barang titipan terlebih dahulu dari halaman Stok." />
         ) : null}

@@ -9,7 +9,9 @@ import { useColors } from '@/hooks/useColors';
 import { useTheme } from '@/context/ThemeContext';
 import { useRouter } from 'expo-router';
 import { Badge, EmptyState, IconButton, PageHeader, PrimaryButton, Screen, SectionHeader, Surface, ui } from '@/components/WarungUI';
+import { OrderComposer } from '@/components/OrderComposer';
 import { persistImageAsset } from '@/utils/persistentImage';
+import { ActiveOrder } from '@/context/WarungContext';
 
 export default function CashierScreen() {
   const c = useColors();
@@ -25,6 +27,7 @@ export default function CashierScreen() {
   const [mergingOrderId, setMergingOrderId] = useState<string | null>(null);
   const [themePickerVisible, setThemePickerVisible] = useState(false);
   const [assigningTableTo, setAssigningTableTo] = useState<string | null>(null);
+  const [addingTo, setAddingTo] = useState<ActiveOrder | null>(null);
   const active = activeOrders.find((order) => order.id === paying);
   const catalogItems = [
     ...menus.map((menu) => ({ ...menu, category: menu.category || 'Lainnya' })),
@@ -99,6 +102,14 @@ export default function CashierScreen() {
         subtitle="Catat cepat, kirim jelas, lanjut layani."
         action={<View style={s.headerActions}><IconButton icon="color-palette-outline" label="Pilih tema warna" onPress={() => setThemePickerVisible(true)} /><IconButton icon={mode === 'light' ? 'moon-outline' : 'sunny-outline'} label={mode === 'light' ? 'Gunakan mode gelap' : 'Gunakan mode terang'} onPress={toggleMode} /></View>}
       />
+       {addingTo ? (
+         <OrderComposer
+           key={addingTo.id}
+           targetOrder={addingTo}
+           onComplete={() => setAddingTo(null)}
+           onCancel={() => setAddingTo(null)}
+         />
+       ) : null}
       <Modal visible={themePickerVisible} transparent animationType="fade" onRequestClose={() => setThemePickerVisible(false)}>
         <View style={[s.themeBackdrop, { backgroundColor: c.foreground + 'B8' }]}>
           <View style={[s.themeModal, { backgroundColor: c.card }]}>
@@ -197,7 +208,55 @@ export default function CashierScreen() {
              {orderItems.map((item, index) => { const catalogItem = catalogItems.find((entry) => entry.id === item.menu); const unitPrice = catalogItem?.price ?? 0; return <View key={`${item.menu}-${index}`} style={s.detailRow}><Text style={[s.detailMenu, { color: c.foreground }]}>{item.qty}× {catalogItem?.name || 'Item dihapus'}</Text><Text style={[s.detailUnit, { color: c.mutedForeground }]}>{formatRp(unitPrice)}</Text><Text style={[s.detailSubtotal, { color: c.foreground }]}>{formatRp(unitPrice * item.qty)}</Text></View>; })}
          </View>
         {order.note ? <Text style={[s.note, { color: c.primary }]}><Ionicons name="chatbubble-ellipses-outline" size={13} />  {order.note}</Text> : null}
-         <View style={s.orderActions}><Pressable onPress={() => { setTables(order.tables); setAssigningTableTo(order.id); }} style={({ pressed }) => [s.outlineButton, { borderColor: c.border, opacity: pressed ? 0.65 : 1 }]}><Ionicons name="grid-outline" size={16} color={c.primary} /><Text style={[s.outlineText, { color: c.primary }]}>{order.tables.length ? 'Ganti meja' : 'Pasangkan meja'}</Text></Pressable><Pressable onPress={() => chooseMergeOrder(order)} style={({ pressed }) => [s.mergeButton, { borderColor: c.primary, backgroundColor: mergingOrderId === order.id ? c.primary : c.card, opacity: pressed ? 0.65 : 1 }]}><Ionicons name="git-merge-outline" size={16} color={mergingOrderId === order.id ? c.primaryForeground : c.primary} /><Text style={[s.outlineText, { color: mergingOrderId === order.id ? c.primaryForeground : c.primary }]}>{mergingOrderId === order.id ? 'Meja utama' : mergingOrderId ? 'Gabungkan ke meja utama' : 'Gabung meja'}</Text></Pressable><Pressable disabled={!order.cooked} onPress={() => { setPaying(order.id); setCash(''); setCashMode('exact'); setCashCounts({}); }} style={({ pressed }) => [s.payButton, { backgroundColor: order.cooked ? c.foreground : c.muted, opacity: order.cooked ? (pressed ? 0.75 : 1) : 0.65 }]}><Text style={[s.payText, { color: order.cooked ? c.card : c.mutedForeground }]}>{order.cooked ? `Bayar ${formatRp(orderTotal(order, menus, consignments))}` : 'Belum matang'}</Text></Pressable><Pressable disabled={order.cooked} accessibilityLabel={`Batalkan pesanan ${order.tables.length ? order.tables.map((table) => `M${table}`).join(' dan ') : 'tanpa meja'}`} onPress={() => confirmCancel(order.id, order.tables)} style={({ pressed }) => [s.cancelButton, { borderColor: order.cooked ? c.border : c.destructive, opacity: order.cooked ? 0.45 : (pressed ? 0.65 : 1) }]}><Ionicons name="close-circle-outline" size={16} color={order.cooked ? c.mutedForeground : c.destructive} /><Text style={[s.outlineText, { color: order.cooked ? c.mutedForeground : c.destructive }]}>{order.cooked ? 'Tidak bisa dibatal' : 'Batalkan pesanan'}</Text></Pressable></View>
+         <View style={s.orderActions}>
+           <Pressable
+             onPress={() => { setTables(order.tables); setAssigningTableTo(order.id); }}
+             style={({ pressed }) => [s.outlineButton, { borderColor: c.border, opacity: pressed ? 0.65 : 1 }]}
+           >
+             <Ionicons name="grid-outline" size={16} color={c.primary} />
+             <Text style={[s.outlineText, { color: c.primary }]}>{order.tables.length ? 'Ganti meja' : 'Pasangkan meja'}</Text>
+           </Pressable>
+           <Pressable
+             onPress={() => chooseMergeOrder(order)}
+             style={({ pressed }) => [s.mergeButton, { borderColor: c.primary, backgroundColor: mergingOrderId === order.id ? c.primary : c.card, opacity: pressed ? 0.65 : 1 }]}
+           >
+             <Ionicons name="git-merge-outline" size={16} color={mergingOrderId === order.id ? c.primaryForeground : c.primary} />
+             <Text style={[s.outlineText, { color: mergingOrderId === order.id ? c.primaryForeground : c.primary }]}>
+               {mergingOrderId === order.id ? 'Meja utama' : mergingOrderId ? 'Gabungkan ke meja utama' : 'Gabung meja'}
+             </Text>
+           </Pressable>
+           {order.cooked ? (
+             <Pressable
+               testID={`add-order-${order.id}`}
+               accessibilityLabel={`Tambah pesanan ${order.tables.length ? order.tables.map((table) => `M${table}`).join(' dan ') : 'tanpa meja'}`}
+               onPress={() => setAddingTo(order)}
+               style={({ pressed }) => [s.addOrderButton, { borderColor: c.primary, backgroundColor: addingTo?.id === order.id ? c.primary : c.card, opacity: pressed ? 0.7 : 1 }]}
+             >
+               <Ionicons name="add-circle-outline" size={16} color={addingTo?.id === order.id ? c.primaryForeground : c.primary} />
+               <Text style={[s.outlineText, { color: addingTo?.id === order.id ? c.primaryForeground : c.primary }]}>Tambah pesanan</Text>
+             </Pressable>
+           ) : null}
+           <Pressable
+             disabled={!order.cooked}
+             onPress={() => { setPaying(order.id); setCash(''); setCashMode('exact'); setCashCounts({}); }}
+             style={({ pressed }) => [s.payButton, { backgroundColor: order.cooked ? c.foreground : c.muted, opacity: order.cooked ? (pressed ? 0.75 : 1) : 0.65 }]}
+           >
+             <Text style={[s.payText, { color: order.cooked ? c.card : c.mutedForeground }]}>
+               {order.cooked ? `Bayar ${formatRp(orderTotal(order, menus, consignments))}` : 'Belum matang'}
+             </Text>
+           </Pressable>
+           <Pressable
+             disabled={order.cooked}
+             accessibilityLabel={`Batalkan pesanan ${order.tables.length ? order.tables.map((table) => `M${table}`).join(' dan ') : 'tanpa meja'}`}
+             onPress={() => confirmCancel(order.id, order.tables)}
+             style={({ pressed }) => [s.cancelButton, { borderColor: order.cooked ? c.border : c.destructive, opacity: order.cooked ? 0.45 : (pressed ? 0.65 : 1) }]}
+           >
+             <Ionicons name="close-circle-outline" size={16} color={order.cooked ? c.mutedForeground : c.destructive} />
+             <Text style={[s.outlineText, { color: order.cooked ? c.mutedForeground : c.destructive }]}>
+               {order.cooked ? 'Tidak bisa dibatal' : 'Batalkan pesanan'}
+             </Text>
+           </Pressable>
+         </View>
         </Surface>;
         })}
       {!activeOrders.length ? <EmptyState icon="checkmark-circle-outline" title="Semua meja sudah lunas" body="Siap menerima pesanan baru." /> : null}
@@ -317,6 +376,7 @@ const s = StyleSheet.create({
   orderActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   outlineButton: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
   mergeButton: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
+  addOrderButton: { flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 11, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 },
   mergeNotice: { borderRadius: 13, padding: 12, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 8 },
   mergeNoticeText: { flex: 1, fontSize: 12, fontWeight: '700' },
   outlineText: { fontSize: 11, fontWeight: '800' },

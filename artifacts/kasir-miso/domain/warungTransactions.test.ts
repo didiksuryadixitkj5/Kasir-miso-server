@@ -47,6 +47,32 @@ describe('transaction stock accounting', () => {
     expect(appended.activeOrders[0].items[0].qty).toBe(2);
   });
 
+  it('routes additions for a cooked order into a separate kitchen ticket', () => {
+    const submitted = submitOrder(
+      state(),
+      { tables: [1], pax: 1, items: [{ menu: 'miso', qty: 1 }], note: '' },
+      () => 'order-1',
+      '10:00',
+    );
+    const cooked = {
+      ...submitted,
+      activeOrders: submitted.activeOrders.map((order) => ({ ...order, cooked: true })),
+      kitchenOrders: [],
+    };
+
+    const appended = appendOrderItems(cooked, 'order-1', [{ menu: 'miso', qty: 1 }], 'Tanpa bawang', () => 'additional-1');
+
+    expect(appended.inventory[0].qty).toBe(0);
+    expect(appended.activeOrders[0].cooked).toBe(false);
+    expect(appended.activeOrders[0].pendingItems).toMatchObject([{ menu: 'miso', qty: 1 }]);
+    expect(appended.kitchenOrders).toMatchObject([{
+      id: 'additional-1',
+      isAdditional: true,
+      parentOrderId: 'order-1',
+      items: [{ menu: 'miso', qty: 1 }],
+    }]);
+  });
+
   it('restores ingredient and consignment stock when an uncooked order is cancelled', () => {
     const submitted = submitOrder(
       state(),

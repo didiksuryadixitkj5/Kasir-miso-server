@@ -107,6 +107,10 @@ export function OrderComposer({ targetOrder = null, onComplete, onCancel }: Orde
       Alert.alert('Pesanan belum lengkap', 'Pilih minimal satu menu.');
       return;
     }
+    if (cart.some((item) => item.qty > getMenuAvailability(item.menu))) {
+      Alert.alert('Stok berubah', 'Stok menu yang dipilih sudah berubah. Periksa pilihan menu lalu coba lagi.');
+      return;
+    }
     if (targetOrder) {
       addItems(targetOrder.id, cart, note);
     } else {
