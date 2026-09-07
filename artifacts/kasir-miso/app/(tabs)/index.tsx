@@ -180,7 +180,7 @@ export default function CashierScreen() {
         <View style={[s.heroIcon, { backgroundColor: c.accent }]}><Ionicons name="restaurant-outline" size={27} color={c.accentForeground} /></View>
       </Surface>
 
-       <SectionHeader title="Akses cepat" meta="Alternatif" icon="flash-outline" />
+       <SectionHeader title="Menu aplikasi" meta="Alternatif" icon="apps-outline" />
        <View style={s.quickActions}>
          {[
            { label: 'Stok', icon: 'cube-outline' as const, route: '/inventory' as const },

@@ -15,7 +15,7 @@ import { BlurView } from 'expo-blur';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const TAB_ROUTES = ['/', '/kitchen', '/inventory', '/expenses', '/reports', '/history', '/other'] as const;
+const TAB_ROUTES = ['/', '/kitchen', '/other'] as const;
 
 function getTabIndex(pathname: string) {
   const normalizedPath = pathname.replace(/\/+$/, '') || '/';
@@ -197,17 +197,31 @@ function ClassicTabLayout() {
         <Tabs.Screen
           name="index"
           options={{
-             title: 'Kasir',
-             tabBarLabel: tabLabel('Kasir'),
-             tabBarIcon: cashierIcon,
+            title: 'Kasir',
+            tabBarLabel: tabLabel('Kasir'),
+            tabBarIcon: cashierIcon,
           }}
         />
-         <Tabs.Screen name="kitchen" options={{ title: 'Dapur', tabBarLabel: tabLabel('Dapur'), tabBarIcon: tabIcon('clock') }} />
-         <Tabs.Screen name="inventory" options={{ title: 'Stok', tabBarLabel: tabLabel('Stok'), tabBarIcon: tabIcon('package') }} />
-         <Tabs.Screen name="expenses" options={{ title: 'Biaya', tabBarLabel: tabLabel('Biaya'), tabBarIcon: tabIcon('file-text') }} />
-         <Tabs.Screen name="reports" options={{ title: 'Laporan', tabBarLabel: tabLabel('Laporan'), tabBarIcon: tabIcon('bar-chart-2') }} />
-          <Tabs.Screen name="history" options={{ title: 'Riwayat', tabBarLabel: tabLabel('Riwayat'), tabBarIcon: tabIcon('file-text') }} />
-          <Tabs.Screen name="other" options={{ title: 'Lainnya', tabBarLabel: tabLabel('Lainnya'), tabBarIcon: tabIcon('more-horizontal') }} />
+        <Tabs.Screen
+          name="kitchen"
+          options={{
+            title: 'Dapur',
+            tabBarLabel: tabLabel('Dapur'),
+            tabBarIcon: tabIcon('clock'),
+          }}
+        />
+        <Tabs.Screen name="inventory" options={{ href: null }} />
+        <Tabs.Screen name="expenses" options={{ href: null }} />
+        <Tabs.Screen name="reports" options={{ href: null }} />
+        <Tabs.Screen name="history" options={{ href: null }} />
+        <Tabs.Screen
+          name="other"
+          options={{
+            title: 'Lainnya',
+            tabBarLabel: tabLabel('Lainnya'),
+            tabBarIcon: tabIcon('more-horizontal'),
+          }}
+        />
         </Tabs>
       </Animated.View>
     </View>
