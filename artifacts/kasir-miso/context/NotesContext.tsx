@@ -8,6 +8,8 @@ export interface NoteItem {
   text: string;
   done: boolean;
   createdAt: string;
+  quantity?: number;
+  unit?: string;
 }
 
 type NotesState = Record<NoteCategory, NoteItem[]>;
@@ -16,14 +18,25 @@ interface NotesContextValue {
   notes: NotesState;
   hydrated: boolean;
   addNote: (category: NoteCategory, text: string) => void;
+  addShoppingItem: (name: string, quantity: number, unit: string) => void;
   toggleNote: (category: NoteCategory, id: string) => void;
   deleteNote: (category: NoteCategory, id: string) => void;
+  changeShoppingQuantity: (id: string, delta: number) => void;
   clearCompleted: (category: NoteCategory) => void;
 }
 
 const NOTES_STORAGE_KEY = 'kasir-miso-notes-v1';
 const createEmptyNotes = (): NotesState => ({ shopping: [], carry: [], general: [] });
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const normalizeShoppingItems = (items: unknown): NoteItem[] => (
+  Array.isArray(items)
+    ? items.map((item) => ({
+      ...(item as NoteItem),
+      quantity: typeof (item as NoteItem).quantity === 'number' && (item as NoteItem).quantity > 0 ? (item as NoteItem).quantity : 1,
+      unit: typeof (item as NoteItem).unit === 'string' && (item as NoteItem).unit.trim() ? (item as NoteItem).unit : 'pcs',
+    }))
+    : []
+);
 
 const NotesContext = createContext<NotesContextValue | null>(null);
 
@@ -39,7 +52,7 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(raw) as Partial<NotesState>;
         if (!mounted) return;
         setNotes({
-          shopping: Array.isArray(parsed.shopping) ? parsed.shopping : [],
+          shopping: normalizeShoppingItems(parsed.shopping),
           carry: Array.isArray(parsed.carry) ? parsed.carry : [],
           general: Array.isArray(parsed.general) ? parsed.general : [],
         });
@@ -69,6 +82,25 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         [category]: [{ id: makeId(), text: trimmed, done: false, createdAt: new Date().toISOString() }, ...current[category]],
       }));
     },
+    addShoppingItem: (name, quantity, unit) => {
+      const trimmedName = name.trim();
+      const trimmedUnit = unit.trim() || 'pcs';
+      const safeQuantity = Number.isFinite(quantity) && quantity > 0 ? Math.round(quantity * 100) / 100 : 1;
+      if (!trimmedName) return;
+      setNotes((current) => {
+        const duplicateIndex = current.shopping.findIndex((item) => !item.done && item.text.toLowerCase() === trimmedName.toLowerCase() && item.unit === trimmedUnit);
+        if (duplicateIndex < 0) {
+          return {
+            ...current,
+            shopping: [{ id: makeId(), text: trimmedName, done: false, createdAt: new Date().toISOString(), quantity: safeQuantity, unit: trimmedUnit }, ...current.shopping],
+          };
+        }
+        const shopping = [...current.shopping];
+        const duplicate = shopping[duplicateIndex];
+        shopping[duplicateIndex] = { ...duplicate, quantity: (duplicate.quantity ?? 1) + safeQuantity };
+        return { ...current, shopping };
+      });
+    },
     toggleNote: (category, id) => {
       setNotes((current) => ({
         ...current,
@@ -79,6 +111,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setNotes((current) => ({
         ...current,
         [category]: current[category].filter((item) => item.id !== id),
+      }));
+    },
+    changeShoppingQuantity: (id, delta) => {
+      setNotes((current) => ({
+        ...current,
+        shopping: current.shopping.map((item) => item.id === id ? { ...item, quantity: Math.max(1, Math.round(((item.quantity ?? 1) + delta) * 100) / 100) } : item),
       }));
     },
     clearCompleted: (category) => {
