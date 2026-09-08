@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { EmptyState, PageHeader, Screen, Surface } from '@/components/WarungUI';
-import { NoteCategory, ShoppingDay, useNotes } from '@/context/NotesContext';
+import { formatRp, useWarung } from '@/context/WarungContext';
+import { NoteCategory, NoteItem, ShoppingDay, useNotes } from '@/context/NotesContext';
 import { useColors } from '@/hooks/useColors';
 
 const categoryOptions: Array<{ id: NoteCategory; label: string; icon: React.ComponentProps<typeof Ionicons>['name']; helper: string }> = [
@@ -14,7 +15,8 @@ const unitOptions = ['pcs', 'kg', 'liter', 'pack'];
 
 export default function NotesScreen() {
   const c = useColors();
-  const { notes, addNote, addShoppingItem, toggleNote, toggleShoppingItem, deleteNote, deleteShoppingItem, changeShoppingQuantity, clearShoppingCompleted, clearCompleted } = useNotes();
+  const { addExpense } = useWarung();
+  const { notes, addNote, addShoppingItem, toggleNote, toggleShoppingItem, deleteNote, deleteShoppingItem, setShoppingPrice, markShoppingExpenseRecorded, changeShoppingQuantity, clearShoppingCompleted, clearCompleted } = useNotes();
   const [selected, setSelected] = useState<NoteCategory>('shopping');
   const [shoppingDay, setShoppingDay] = useState<ShoppingDay>('tomorrow');
   const [draft, setDraft] = useState('');
@@ -40,6 +42,18 @@ export default function NotesScreen() {
     addShoppingItem(shoppingDay, shoppingName, quantity, shoppingUnit);
     setShoppingName('');
     setShoppingQuantity('1');
+  };
+
+  const handleShoppingToggle = (day: ShoppingDay, item: NoteItem) => {
+    if (day === 'today' && !item.done && !item.expenseRecorded) {
+      if (!item.price || item.price <= 0) {
+        Alert.alert('Harga belum diisi', 'Masukkan total harga belanja sebelum menandai barang sudah dibeli.');
+        return;
+      }
+      addExpense(`Belanja hari ini · ${item.text}`, item.price);
+      markShoppingExpenseRecorded(day, item.id);
+    }
+    toggleShoppingItem(day, item.id);
   };
 
   return (
@@ -87,8 +101,9 @@ export default function NotesScreen() {
           onQuantityChange={setShoppingQuantity}
           onUnitChange={setShoppingUnit}
           onSubmit={submitShopping}
-          onToggle={toggleShoppingItem}
           onDelete={deleteShoppingItem}
+          onPriceChange={setShoppingPrice}
+          onToggleItem={handleShoppingToggle}
           onChangeQuantity={changeShoppingQuantity}
           onClear={() => clearShoppingCompleted(shoppingDay)}
         />
@@ -174,13 +189,14 @@ function ShoppingContent({
   onUnitChange,
   onDayChange,
   onSubmit,
-  onToggle,
+  onToggleItem,
   onDelete,
+  onPriceChange,
   onChangeQuantity,
   onClear,
 }: {
   day: ShoppingDay;
-  items: Array<{ id: string; text: string; done: boolean; quantity?: number; unit?: string }>;
+  items: NoteItem[];
   name: string;
   quantity: string;
   unit: string;
@@ -189,8 +205,9 @@ function ShoppingContent({
   onUnitChange: (value: string) => void;
   onSubmit: () => void;
   onDayChange: (day: ShoppingDay) => void;
-  onToggle: (day: ShoppingDay, id: string) => void;
+  onToggleItem: (day: ShoppingDay, item: NoteItem) => void;
   onDelete: (day: ShoppingDay, id: string) => void;
+  onPriceChange: (day: ShoppingDay, id: string, price: number) => void;
   onChangeQuantity: (day: ShoppingDay, id: string, delta: number) => void;
   onClear: () => void;
 }) {
@@ -295,7 +312,7 @@ function ShoppingContent({
       {pending.length ? (
         <View style={s.shoppingList}>
           {pending.map((item) => (
-            <ShoppingRow key={item.id} item={item} day={day} onToggle={onToggle} onDelete={onDelete} onChangeQuantity={onChangeQuantity} />
+            <ShoppingRow key={item.id} item={item} day={day} onToggleItem={onToggleItem} onDelete={onDelete} onPriceChange={onPriceChange} onChangeQuantity={onChangeQuantity} />
           ))}
         </View>
       ) : (
@@ -315,7 +332,7 @@ function ShoppingContent({
             </Pressable>
           </View>
           {completed.map((item) => (
-            <ShoppingRow key={item.id} item={item} day={day} onToggle={onToggle} onDelete={onDelete} onChangeQuantity={onChangeQuantity} />
+            <ShoppingRow key={item.id} item={item} day={day} onToggleItem={onToggleItem} onDelete={onDelete} onPriceChange={onPriceChange} onChangeQuantity={onChangeQuantity} />
           ))}
         </View>
       ) : null}
@@ -326,14 +343,16 @@ function ShoppingContent({
 function ShoppingRow({
   item,
   day,
-  onToggle,
+  onToggleItem,
   onDelete,
+  onPriceChange,
   onChangeQuantity,
 }: {
-  item: { id: string; text: string; done: boolean; quantity?: number; unit?: string };
+  item: NoteItem;
   day: ShoppingDay;
-  onToggle: (day: ShoppingDay, id: string) => void;
+  onToggleItem: (day: ShoppingDay, item: NoteItem) => void;
   onDelete: (day: ShoppingDay, id: string) => void;
+  onPriceChange: (day: ShoppingDay, id: string, price: number) => void;
   onChangeQuantity: (day: ShoppingDay, id: string, delta: number) => void;
 }) {
   const c = useColors();
@@ -343,14 +362,35 @@ function ShoppingRow({
         accessibilityRole="checkbox"
         accessibilityState={{ checked: item.done }}
         accessibilityLabel={item.done ? `Tandai ${item.text} belum dibeli` : `Tandai ${item.text} sudah dibeli`}
-        onPress={() => onToggle(day, item.id)}
+        onPress={() => onToggleItem(day, item)}
         style={({ pressed }) => [s.shoppingCheck, { backgroundColor: item.done ? c.primary : c.secondary, borderColor: item.done ? c.primary : c.border, opacity: pressed ? 0.7 : 1 }]}
       >
         {item.done ? <Ionicons name="checkmark" size={16} color={c.primaryForeground} /> : null}
       </Pressable>
       <View style={s.shoppingRowCopy}>
         <Text style={[s.shoppingRowName, { color: item.done ? c.mutedForeground : c.foreground, textDecorationLine: item.done ? 'line-through' : 'none' }]}>{item.text}</Text>
-        <Text style={[s.shoppingRowMeta, { color: c.mutedForeground }]}>{item.quantity ?? 1} {item.unit ?? 'pcs'}</Text>
+        <Text style={[s.shoppingRowMeta, { color: c.mutedForeground }]}>
+          {item.quantity ?? 1} {item.unit ?? 'pcs'}{day === 'today' && item.price ? ` · ${formatRp(item.price)}` : ''}
+        </Text>
+        {day === 'today' ? (
+          <View style={s.itemPriceRow}>
+            <Text style={[s.itemPriceLabel, { color: c.mutedForeground }]}>Total harga</Text>
+            <View style={[s.itemPriceInputWrap, { backgroundColor: c.secondary }]}>
+              <Text style={[s.itemPricePrefix, { color: c.mutedForeground }]}>Rp</Text>
+              <TextInput
+                value={item.price ? String(item.price) : ''}
+                onChangeText={(value) => onPriceChange(day, item.id, Number(value.replace(/[^0-9]/g, '')))}
+                editable={!item.done}
+                keyboardType="number-pad"
+                placeholder="0"
+                placeholderTextColor={c.mutedForeground}
+                style={[s.itemPriceInput, { color: c.foreground }]}
+                accessibilityLabel={`Total harga ${item.text}`}
+              />
+            </View>
+            {item.expenseRecorded ? <Ionicons name="checkmark-circle" size={15} color={c.primary} /> : null}
+          </View>
+        ) : null}
       </View>
       {!item.done ? (
         <View style={[s.stepper, { backgroundColor: c.secondary }]}>
@@ -449,6 +489,11 @@ const s = StyleSheet.create({
   shoppingRowCopy: { flex: 1 },
   shoppingRowName: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
   shoppingRowMeta: { fontSize: 11, marginTop: 3, fontWeight: '600' },
+  itemPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 7 },
+  itemPriceLabel: { fontSize: 10, fontWeight: '700' },
+  itemPriceInputWrap: { height: 28, minWidth: 96, borderRadius: 8, paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center' },
+  itemPricePrefix: { fontSize: 10, fontWeight: '800', marginRight: 4 },
+  itemPriceInput: { flex: 1, minWidth: 56, padding: 0, fontSize: 11, fontWeight: '800' },
   stepper: { height: 30, borderRadius: 9, paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', gap: 8 },
   stepperValue: { minWidth: 17, textAlign: 'center', fontSize: 11, fontWeight: '800' },
   composer: { minHeight: 54, borderWidth: 1, borderRadius: 16, paddingLeft: 14, paddingRight: 7, flexDirection: 'row', alignItems: 'center', marginBottom: 13 },

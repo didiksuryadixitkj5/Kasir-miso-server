@@ -11,6 +11,8 @@ export interface NoteItem {
   createdAt: string;
   quantity?: number;
   unit?: string;
+  price?: number;
+  expenseRecorded?: boolean;
 }
 
 interface NotesState {
@@ -29,6 +31,8 @@ interface NotesContextValue {
   toggleShoppingItem: (day: ShoppingDay, id: string) => void;
   deleteNote: (category: NoteCategory, id: string) => void;
   deleteShoppingItem: (day: ShoppingDay, id: string) => void;
+  setShoppingPrice: (day: ShoppingDay, id: string, price: number) => void;
+  markShoppingExpenseRecorded: (day: ShoppingDay, id: string) => void;
   changeShoppingQuantity: (day: ShoppingDay, id: string, delta: number) => void;
   clearShoppingCompleted: (day: ShoppingDay) => void;
   clearCompleted: (category: NoteCategory) => void;
@@ -63,6 +67,8 @@ const normalizeShoppingItems = (items: unknown): NoteItem[] => (
       ...(item as NoteItem),
       quantity: typeof (item as NoteItem).quantity === 'number' && (item as NoteItem).quantity > 0 ? (item as NoteItem).quantity : 1,
       unit: typeof (item as NoteItem).unit === 'string' && (item as NoteItem).unit.trim() ? (item as NoteItem).unit : 'pcs',
+      price: typeof (item as NoteItem).price === 'number' && (item as NoteItem).price > 0 ? item.price : undefined,
+      expenseRecorded: Boolean((item as NoteItem).expenseRecorded),
     }))
     : []
 );
@@ -159,6 +165,13 @@ export function NotesProvider({ children }: { children: ReactNode }) {
     },
     deleteShoppingItem: (day, id) => {
       setNotes((current) => replaceListForDay(current, day, listForDay(current, day).filter((item) => item.id !== id)));
+    },
+    setShoppingPrice: (day, id, price) => {
+      const safePrice = Number.isFinite(price) && price > 0 ? Math.round(price) : undefined;
+      setNotes((current) => replaceListForDay(current, day, listForDay(current, day).map((item) => item.id === id ? { ...item, price: safePrice } : item)));
+    },
+    markShoppingExpenseRecorded: (day, id) => {
+      setNotes((current) => replaceListForDay(current, day, listForDay(current, day).map((item) => item.id === id ? { ...item, expenseRecorded: true } : item)));
     },
     changeShoppingQuantity: (day, id, delta) => {
       setNotes((current) => replaceListForDay(current, day, listForDay(current, day).map((item) => item.id === id ? { ...item, quantity: Math.max(1, Math.round(((item.quantity ?? 1) + delta) * 100) / 100) } : item)));
