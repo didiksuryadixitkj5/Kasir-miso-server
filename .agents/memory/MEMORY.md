@@ -1,3 +1,4 @@
 - [Generated API declarations](api-client-generated-declarations.md) — rebuild the shared API client declarations when artifact typechecks report missing exports that exist in source.
 - [Expo component tests](expo-vitest-harness.md) — Vitest needs a lightweight React Native/Expo mock harness before rendering screens in Node.
+- [Expo preview blank-screen safeguards](expo-preview-blank.md) — keep tests outside app routes and never let web font loading block the root render indefinitely.
 - [Shopping expense backup compatibility](shopping-expense-backup-compatibility.md) — deduplication needs stable item IDs; legacy expenses may validly omit the optional link.

@@ -61,14 +61,39 @@ export default function RootLayout() {
   const [fontError, setFontError] = useState<Error | null>(null);
 
   useEffect(() => {
+    // Web can render with the system fallback while the optional Inter font
+    // loads. Blocking the entire router on web font loading can leave a
+    // permanently blank preview when the asset request never settles.
+    if (Platform.OS === 'web') {
+      setFontsLoaded(true);
+      return;
+    }
+
+    let active = true;
+    const timeout = setTimeout(() => {
+      if (active) {
+        setFontError(new Error('Font loading timed out'));
+      }
+    }, 4000);
+
     Font.loadAsync({
       Inter_400Regular,
       Inter_500Medium,
       Inter_600SemiBold,
       Inter_700Bold,
     })
-      .then(() => setFontsLoaded(true))
-      .catch((error: Error) => setFontError(error));
+      .then(() => {
+        if (active) setFontsLoaded(true);
+      })
+      .catch((error: Error) => {
+        if (active) setFontError(error);
+      })
+      .finally(() => clearTimeout(timeout));
+
+    return () => {
+      active = false;
+      clearTimeout(timeout);
+    };
   }, []);
 
   useEffect(() => {

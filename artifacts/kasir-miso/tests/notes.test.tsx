@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Alert, Pressable, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import NotesScreen from './notes';
+import NotesScreen from '../app/(tabs)/notes';
 import { NotesProvider } from '@/context/NotesContext';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { WarungProvider, useWarung } from '@/context/WarungContext';
