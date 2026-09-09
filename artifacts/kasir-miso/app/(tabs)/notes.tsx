@@ -225,6 +225,7 @@ function ShoppingContent({
           return (
             <Pressable
               key={item}
+              testID={`shopping-day-${item}`}
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
               onPress={() => onDayChange(item)}

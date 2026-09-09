@@ -1,1 +1,2 @@
 - [Generated API declarations](api-client-generated-declarations.md) — rebuild the shared API client declarations when artifact typechecks report missing exports that exist in source.
+- [Expo component tests](expo-vitest-harness.md) — Vitest needs a lightweight React Native/Expo mock harness before rendering screens in Node.
