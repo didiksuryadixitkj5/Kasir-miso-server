@@ -10,6 +10,12 @@ type Connection = {
   drive_file_id: string | null;
 };
 
+type DriveFile = {
+  id: string;
+  name?: string;
+  modifiedTime?: string;
+};
+
 let connection: Connection | null = null;
 let session: { hash: string; deviceId: string; expiresAt: Date } | null = null;
 
@@ -84,6 +90,16 @@ const nativeFetch = globalThis.fetch;
 const tokenResponses: Array<Record<string, unknown>> = [];
 const userinfoResponses: Array<Record<string, unknown>> = [];
 const driveRequests: string[] = [];
+const driveUploadBodies: Array<{ method: string; url: string; body: string }> = [];
+let listedBackupFile: DriveFile | null | undefined;
+let updatedBackupFile: DriveFile = {
+  id: "drive-file-b",
+  modifiedTime: "2026-09-04T10:00:00.000Z",
+};
+let createdBackupFile: DriveFile = {
+  id: "drive-file-created",
+  modifiedTime: "2026-09-05T10:00:00.000Z",
+};
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -94,6 +110,7 @@ function jsonResponse(body: unknown, status = 200) {
 
 const googleFetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
   const url = String(input);
+  const method = init?.method ?? "GET";
   if (url === "https://oauth2.googleapis.com/token") {
     const body = new URLSearchParams(String(init?.body ?? ""));
     driveRequests.push(`token:${body.get("refresh_token") ?? ""}`);
@@ -103,8 +120,36 @@ const googleFetch = vi.fn(async (input: string | URL | Request, init?: RequestIn
     return jsonResponse(userinfoResponses.shift() ?? {});
   }
   driveRequests.push(url);
+  if (url.startsWith("https://www.googleapis.com/upload/drive/v3/files/")) {
+    driveUploadBodies.push({
+      method,
+      url,
+      body: String(init?.body ?? ""),
+    });
+    return jsonResponse({});
+  }
+  if (url === "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime") {
+    driveUploadBodies.push({
+      method,
+      url,
+      body: String(init?.body ?? ""),
+    });
+    return jsonResponse(createdBackupFile);
+  }
+  if (url.startsWith("https://www.googleapis.com/drive/v3/files/") && url.includes("?fields=id,name,modifiedTime")) {
+    return jsonResponse(updatedBackupFile);
+  }
+  if (url.startsWith("https://www.googleapis.com/drive/v3/files/") && url.includes("?fields=id,modifiedTime")) {
+    return jsonResponse(updatedBackupFile);
+  }
   if (url.startsWith("https://www.googleapis.com/drive/v3/files?")) {
-    return jsonResponse({ files: [{ id: "drive-file-b", name: "Kasir Miso Backup.json", modifiedTime: "2026-09-04T10:00:00.000Z" }] });
+    return jsonResponse({
+      files: listedBackupFile === undefined
+        ? [{ id: "drive-file-b", name: "Kasir Miso Backup.json", modifiedTime: "2026-09-04T10:00:00.000Z" }]
+        : listedBackupFile
+          ? [listedBackupFile]
+          : [],
+    });
   }
   if (url.endsWith("/drive-file-b?alt=media")) {
     return new Response('{"storage":{}}', { status: 200 });
@@ -139,6 +184,14 @@ function connectRequest(code: string, extraHeaders: Record<string, string> = {})
   });
 }
 
+async function createValidGoogleSession() {
+  tokenResponses.push({ access_token: "access-connect", refresh_token: "refresh-connect" });
+  userinfoResponses.push({ email: "backup-owner@example.com" });
+  const response = await connectRequest("backup-connect");
+  expect(response.status).toBe(200);
+  return (await response.json() as { sessionToken: string }).sessionToken;
+}
+
 describe("Google connection account isolation", () => {
   beforeEach(() => {
     process.env.SESSION_SECRET = "test-session-secret";
@@ -151,6 +204,16 @@ describe("Google connection account isolation", () => {
     tokenResponses.length = 0;
     userinfoResponses.length = 0;
     driveRequests.length = 0;
+    driveUploadBodies.length = 0;
+    listedBackupFile = undefined;
+    updatedBackupFile = {
+      id: "drive-file-b",
+      modifiedTime: "2026-09-04T10:00:00.000Z",
+    };
+    createdBackupFile = {
+      id: "drive-file-created",
+      modifiedTime: "2026-09-05T10:00:00.000Z",
+    };
     vi.stubGlobal("fetch", googleFetch);
   });
 
@@ -213,7 +276,115 @@ describe("Google connection account isolation", () => {
   });
 });
 
+describe("Google backup upload persistence", () => {
+  beforeEach(() => {
+    process.env.SESSION_SECRET = "test-session-secret";
+    process.env.GOOGLE_OAUTH_CLIENT_IDS = clientId;
+    process.env.GOOGLE_OAUTH_WEB_CLIENT_ID = "";
+    connection = null;
+    session = null;
+    query.mockClear();
+    googleFetch.mockClear();
+    tokenResponses.length = 0;
+    userinfoResponses.length = 0;
+    driveRequests.length = 0;
+    driveUploadBodies.length = 0;
+    listedBackupFile = undefined;
+    updatedBackupFile = {
+      id: "drive-file-b",
+      modifiedTime: "2026-09-04T10:00:00.000Z",
+    };
+    createdBackupFile = {
+      id: "drive-file-created",
+      modifiedTime: "2026-09-05T10:00:00.000Z",
+    };
+    vi.stubGlobal("fetch", googleFetch);
+  });
+
+  it("preserves a large backup body when updating an existing Drive file", async () => {
+    const sessionToken = await createValidGoogleSession();
+    connection!.drive_file_id = "drive-file-existing";
+    const content = JSON.stringify({
+      storage: {
+        image: "data:image/jpeg;base64," + "A".repeat(128 * 1024),
+      },
+    });
+    const expectedModifiedTime = "2026-09-04T10:00:00.000Z";
+    tokenResponses.push({ access_token: "access-drive" });
+    updatedBackupFile = { id: "drive-file-existing", modifiedTime: expectedModifiedTime };
+
+    const response = await apiRequest("/google/backup", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ content, expectedModifiedTime }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ modifiedTime: expectedModifiedTime });
+    expect(driveUploadBodies).toHaveLength(1);
+    expect(driveUploadBodies[0]).toMatchObject({
+      method: "PATCH",
+      url: "https://www.googleapis.com/upload/drive/v3/files/drive-file-existing?uploadType=media",
+      body: content,
+    });
+    expect(connection?.drive_file_id).toBe("drive-file-existing");
+  });
+
+  it("preserves a large backup body when creating a new Drive file", async () => {
+    const sessionToken = await createValidGoogleSession();
+    const content = JSON.stringify({
+      storage: {
+        image: "data:image/png;base64," + "B".repeat(128 * 1024),
+      },
+    });
+    listedBackupFile = null;
+    tokenResponses.push({ access_token: "access-drive" });
+
+    const response = await apiRequest("/google/backup", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ content }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      modifiedTime: createdBackupFile.modifiedTime,
+    });
+    expect(driveUploadBodies).toHaveLength(1);
+    expect(driveUploadBodies[0].method).toBe("POST");
+    expect(driveUploadBodies[0].url).toBe(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime",
+    );
+    expect(driveUploadBodies[0].body).toContain(content);
+    expect(connection?.drive_file_id).toBe(createdBackupFile.id);
+  });
+});
+
 describe("Google backup request size handling", () => {
+  beforeEach(() => {
+    process.env.SESSION_SECRET = "test-session-secret";
+    process.env.GOOGLE_OAUTH_CLIENT_IDS = clientId;
+    process.env.GOOGLE_OAUTH_WEB_CLIENT_ID = "";
+    connection = null;
+    session = null;
+    query.mockClear();
+    googleFetch.mockClear();
+    tokenResponses.length = 0;
+    userinfoResponses.length = 0;
+    driveRequests.length = 0;
+    driveUploadBodies.length = 0;
+    listedBackupFile = undefined;
+    vi.stubGlobal("fetch", googleFetch);
+  });
+
   it("accepts a backup body larger than 100 KB before returning structured auth errors", async () => {
     const response = await apiRequest("/google/backup", {
       method: "PUT",
