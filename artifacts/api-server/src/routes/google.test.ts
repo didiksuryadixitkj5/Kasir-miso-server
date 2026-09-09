@@ -100,6 +100,7 @@ let createdBackupFile: DriveFile = {
   id: "drive-file-created",
   modifiedTime: "2026-09-05T10:00:00.000Z",
 };
+let downloadedBackupContent = '{"storage":{}}';
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -151,8 +152,8 @@ const googleFetch = vi.fn(async (input: string | URL | Request, init?: RequestIn
           : [],
     });
   }
-  if (url.endsWith("/drive-file-b?alt=media")) {
-    return new Response('{"storage":{}}', { status: 200 });
+  if (url.includes("?alt=media")) {
+    return new Response(downloadedBackupContent, { status: 200 });
   }
   return jsonResponse({ id: "unexpected-file" });
 });
@@ -214,6 +215,7 @@ describe("Google connection account isolation", () => {
       id: "drive-file-created",
       modifiedTime: "2026-09-05T10:00:00.000Z",
     };
+    downloadedBackupContent = '{"storage":{}}';
     vi.stubGlobal("fetch", googleFetch);
   });
 
@@ -298,6 +300,7 @@ describe("Google backup upload persistence", () => {
       id: "drive-file-created",
       modifiedTime: "2026-09-05T10:00:00.000Z",
     };
+    downloadedBackupContent = '{"storage":{}}';
     vi.stubGlobal("fetch", googleFetch);
   });
 
@@ -366,6 +369,41 @@ describe("Google backup upload persistence", () => {
     expect(driveUploadBodies[0].body).toContain(content);
     expect(connection?.drive_file_id).toBe(createdBackupFile.id);
   });
+
+  it("returns the complete large backup body and its Drive modified time", async () => {
+    const sessionToken = await createValidGoogleSession();
+    const fileId = "drive-file-large-download";
+    const modifiedTime = "2026-09-06T10:00:00.000Z";
+    const content = JSON.stringify({
+      format: "kasir-miso-online-backup",
+      version: 1,
+      createdAt: "2026-09-06T09:55:00.000Z",
+      storage: {
+        qrisImageUri: "data:image/png;base64," + "C".repeat(256 * 1024),
+      },
+    });
+    connection!.drive_file_id = fileId;
+    updatedBackupFile = { id: fileId, modifiedTime };
+    downloadedBackupContent = content;
+    tokenResponses.push({ access_token: "access-drive" });
+
+    const response = await apiRequest("/google/backup", {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+      },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      content,
+      modifiedTime,
+    });
+    expect(driveRequests).toContain(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    );
+    expect(connection?.drive_file_id).toBe(fileId);
+  });
 });
 
 describe("Google backup request size handling", () => {
@@ -382,6 +420,7 @@ describe("Google backup request size handling", () => {
     driveRequests.length = 0;
     driveUploadBodies.length = 0;
     listedBackupFile = undefined;
+    downloadedBackupContent = '{"storage":{}}';
     vi.stubGlobal("fetch", googleFetch);
   });
 
