@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WarungState } from '@/context/WarungContext';
-import { addShoppingExpense } from './shoppingExpenses';
+import { addShoppingExpense, normalizeShoppingExpenses } from './shoppingExpenses';
 
 function state(expenses: WarungState['expenses'] = []): WarungState {
   return {
@@ -17,6 +17,27 @@ function state(expenses: WarungState['expenses'] = []): WarungState {
 }
 
 describe('shopping expense recording', () => {
+  it('preserves automatic expense links while accepting legacy expenses without one', () => {
+    const legacyExpense = {
+      id: 'expense-legacy',
+      title: 'Belanja lama',
+      amount: 10_000,
+      date: '2026-09-08',
+    };
+    const linkedExpense = {
+      id: 'expense-linked',
+      title: 'Belanja baru',
+      amount: 25_000,
+      date: '2026-09-09',
+      shoppingItemId: 'shopping-1',
+    };
+
+    expect(normalizeShoppingExpenses([legacyExpense, linkedExpense])).toEqual([
+      legacyExpense,
+      linkedExpense,
+    ]);
+  });
+
   it('records a priced shopping item once even when the action is repeated', () => {
     const first = addShoppingExpense(
       state(),

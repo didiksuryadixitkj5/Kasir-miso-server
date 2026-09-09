@@ -1,4 +1,5 @@
 import type { MenuItem, WarungState } from '@/context/WarungContext';
+import { normalizeShoppingExpenses } from './shoppingExpenses';
 
 export const WARUNG_STATE_STORAGE_KEY = 'warung-state-v2';
 
@@ -73,7 +74,7 @@ export async function hydrateWarungState(raw: string | null, persistImageUri: Pe
         ...item,
         packSize: Number(item.packSize) > 0 ? Number(item.packSize) : 1,
       })),
-      expenses: Array.isArray(saved.expenses) ? saved.expenses : [],
+      expenses: normalizeShoppingExpenses(saved.expenses),
       sales: Array.isArray(saved.sales) ? saved.sales : [],
       savingsRules: Array.isArray(saved.savingsRules) ? saved.savingsRules : [],
       savingsEntries: Array.isArray(saved.savingsEntries) ? saved.savingsEntries : [],

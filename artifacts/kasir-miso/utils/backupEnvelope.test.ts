@@ -14,6 +14,8 @@ import {
   hasRemoteRevisionConflict,
   parseStoredBackup,
 } from './backupEnvelope';
+import { addShoppingExpense } from '@/domain/shoppingExpenses';
+import { hydrateWarungState } from '@/domain/menuOrdering';
 
 const isAllowedKey = (key: string) => key.startsWith('warung-');
 
@@ -48,6 +50,80 @@ describe('backup envelope', () => {
 
     await expect(parseStoredBackup(JSON.stringify(tampered), isAllowedKey))
       .rejects.toThrow('Checksum backup Google Drive tidak cocok');
+  });
+
+  it('keeps a shopping item link through backup restore and blocks re-recording it', async () => {
+    const expense = {
+      id: 'expense-1',
+      title: 'Belanja hari ini · Minyak',
+      amount: 25_000,
+      date: '2026-09-09',
+      shoppingItemId: 'shopping-1',
+    };
+    const backup = await createStoredBackup({
+      'warung-state-v2': JSON.stringify({
+        menus: [],
+        activeOrders: [],
+        kitchenOrders: [],
+        inventory: [],
+        consignments: [],
+        expenses: [expense],
+        sales: [],
+        savingsRules: [],
+        savingsEntries: [],
+      }),
+    });
+
+    const restoredBackup = await parseStoredBackup(JSON.stringify(backup), isAllowedKey);
+    const restoredState = await hydrateWarungState(
+      restoredBackup.storage['warung-state-v2'],
+      async (uri) => uri,
+    );
+    const retriedState = addShoppingExpense(
+      restoredState,
+      'shopping-1',
+      'Belanja hari ini · Minyak',
+      25_000,
+      () => 'expense-2',
+      '2026-09-09',
+    );
+
+    expect(restoredState.expenses).toEqual([expense]);
+    expect(retriedState).toBe(restoredState);
+    expect(retriedState.expenses).toEqual([expense]);
+  });
+
+  it('restores a legacy backup whose expenses do not have shopping item links', async () => {
+    const legacyExpense = {
+      id: 'expense-legacy',
+      title: 'Belanja lama',
+      amount: 10_000,
+      date: '2026-09-08',
+    };
+    const legacyBackup = {
+      format: 'kasir-miso-online-backup',
+      version: 1,
+      createdAt: '2026-09-08T10:00:00.000Z',
+      storage: {
+        'warung-state-v2': JSON.stringify({
+          menus: [],
+          activeOrders: [],
+          kitchenOrders: [],
+          inventory: [],
+          consignments: [],
+          expenses: [legacyExpense],
+          sales: [],
+          savingsRules: [],
+          savingsEntries: [],
+        }),
+      },
+    };
+
+    const restoredBackup = await parseStoredBackup(JSON.stringify(legacyBackup), isAllowedKey);
+    await expect(hydrateWarungState(
+      restoredBackup.storage['warung-state-v2'],
+      async (uri) => uri,
+    )).resolves.toMatchObject({ expenses: [legacyExpense] });
   });
 
   it('detects a Drive revision that this device has never observed', () => {
