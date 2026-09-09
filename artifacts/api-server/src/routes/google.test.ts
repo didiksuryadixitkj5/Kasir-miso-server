@@ -1,6 +1,5 @@
 // Keep this route test out of the API production TypeScript build.
 // @ts-nocheck
-import express from "express";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 type Connection = {
@@ -79,7 +78,7 @@ vi.mock("@workspace/db", () => ({
   pool: { query },
 }));
 
-import googleRouter from "./google";
+import app from "../app";
 
 const nativeFetch = globalThis.fetch;
 const tokenResponses: Array<Record<string, unknown>> = [];
@@ -113,16 +112,13 @@ const googleFetch = vi.fn(async (input: string | URL | Request, init?: RequestIn
   return jsonResponse({ id: "unexpected-file" });
 });
 
-const app = express();
-app.use(express.json());
-app.use(googleRouter);
 const server = app.listen(0);
 const address = server.address();
 if (!address || typeof address === "string") throw new Error("Test server did not open a TCP port.");
 const baseUrl = `http://127.0.0.1:${address.port}`;
 
 async function apiRequest(path: string, init?: RequestInit) {
-  return nativeFetch(`${baseUrl}${path}`, init);
+  return nativeFetch(`${baseUrl}/api${path}`, init);
 }
 
 const deviceId = "device-two-account-regression";
@@ -214,6 +210,36 @@ describe("Google connection account isolation", () => {
     expect(driveRequests).toContain("token:refresh-b");
     expect(driveRequests).not.toContain("https://www.googleapis.com/drive/v3/files/drive-file-a?fields=id,name,modifiedTime");
     expect(driveRequests.some((url) => url.startsWith("https://www.googleapis.com/drive/v3/files?q="))).toBe(true);
+  });
+});
+
+describe("Google backup request size handling", () => {
+  it("accepts a backup body larger than 100 KB before returning structured auth errors", async () => {
+    const response = await apiRequest("/google/backup", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "x".repeat(128 * 1024) }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toEqual({
+      message: "Sesi Google tidak ditemukan atau sudah kedaluwarsa.",
+    });
+  });
+
+  it("returns a displayable JSON error when the backup exceeds the safe request limit", async () => {
+    const response = await apiRequest("/google/backup", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content: "x".repeat(25 * 1024 * 1024) }),
+    });
+
+    expect(response.status).toBe(413);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    await expect(response.json()).resolves.toEqual({
+      message: "Backup terlalu besar untuk dikirim. Hapus gambar yang tidak diperlukan lalu coba lagi.",
+    });
   });
 });
 
