@@ -15,7 +15,7 @@ const unitOptions = ['pcs', 'kg', 'liter', 'pack'];
 
 export default function NotesScreen() {
   const c = useColors();
-  const { addExpense } = useWarung();
+  const { addShoppingExpense } = useWarung();
   const { notes, addNote, addShoppingItem, toggleNote, toggleShoppingItem, deleteNote, deleteShoppingItem, setShoppingPrice, markShoppingExpenseRecorded, changeShoppingQuantity, clearShoppingCompleted, clearCompleted } = useNotes();
   const [selected, setSelected] = useState<NoteCategory>('shopping');
   const [shoppingDay, setShoppingDay] = useState<ShoppingDay>('tomorrow');
@@ -50,7 +50,7 @@ export default function NotesScreen() {
         Alert.alert('Harga belum diisi', 'Masukkan total harga belanja sebelum menandai barang sudah dibeli.');
         return;
       }
-      addExpense(`Belanja hari ini · ${item.text}`, item.price);
+      addShoppingExpense(item.id, `Belanja hari ini · ${item.text}`, item.price);
       markShoppingExpenseRecorded(day, item.id);
     }
     toggleShoppingItem(day, item.id);

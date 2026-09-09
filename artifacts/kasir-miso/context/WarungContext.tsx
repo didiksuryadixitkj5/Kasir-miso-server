@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import { persistImageUri } from '@/utils/persistentImage';
 import { appendOrderItems, cancelActiveOrder, submitOrder } from '@/domain/warungTransactions';
+import { addShoppingExpense as addShoppingExpenseToState } from '@/domain/shoppingExpenses';
 import {
   createDefaultWarungState,
   hydrateWarungState,
@@ -59,7 +60,7 @@ export interface ConsignmentItem {
   /** Stok disimpan dalam satuan biji. */
   qty: number;
 }
-export interface Expense { id: string; title: string; amount: number; date: string }
+export interface Expense { id: string; title: string; amount: number; date: string; shoppingItemId?: string }
 export interface SavingsRule {
   id: string;
   name: string;
@@ -127,6 +128,7 @@ interface ContextValue extends WarungState {
   addStock: (id: string, qty: number) => void;
   removeStock: (id: string, qty: number) => void;
   addExpense: (title: string, amount: number) => void;
+  addShoppingExpense: (shoppingItemId: string, title: string, amount: number) => void;
   addSavingsRule: (name: string, inventoryId: string, amountPerItem: number) => void;
   addManualSaving: (name: string, amount: number) => void;
   useSavings: (sourceId: string, sourceType: 'rule' | 'manual' | 'consignment', amount: number) => void;
@@ -322,6 +324,14 @@ export function WarungProvider({ children }: { children: ReactNode }) {
     addStock: (id, qty) => setState(s => ({ ...s, inventory: s.inventory.map(i => i.id === id ? { ...i, qty: i.qty + qty } : i) })),
     removeStock: (id, qty) => setState(s => ({ ...s, inventory: s.inventory.map(i => i.id === id ? { ...i, qty: Math.max(0, i.qty - qty) } : i) })),
       addExpense: (title, amount) => setState(s => ({ ...s, expenses: [...s.expenses, { id: makeId(), title, amount, date: localDate() }] })),
+      addShoppingExpense: (shoppingItemId, title, amount) => setState(s => addShoppingExpenseToState(
+        s,
+        shoppingItemId,
+        title,
+        amount,
+        makeId,
+        localDate(),
+      )),
      addSavingsRule: (name, inventoryId, amountPerItem) => setState(s => {
        if (s.savingsRules.some((rule) => rule.inventoryId === inventoryId)) return s;
        return { ...s, savingsRules: [...s.savingsRules, { id: makeId(), name, inventoryId, amountPerItem, savedAmount: 0, savedQty: 0 }] };

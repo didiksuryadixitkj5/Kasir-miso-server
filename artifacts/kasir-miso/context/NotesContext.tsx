@@ -61,6 +61,13 @@ const listForCategory = (state: NotesState, category: NoteCategory) => category 
 const replaceListForCategory = (state: NotesState, category: NoteCategory, items: NoteItem[]): NotesState => (
   category === 'carry' ? { ...state, carry: items } : { ...state, general: items }
 );
+export const rollShoppingItemsToToday = (
+  shoppingToday: NoteItem[],
+  shoppingTomorrow: NoteItem[],
+  shouldRollOver: boolean,
+) => shouldRollOver
+  ? { shoppingToday: [...shoppingTomorrow, ...shoppingToday], shoppingTomorrow: [] }
+  : { shoppingToday, shoppingTomorrow };
 const normalizeShoppingItems = (items: unknown): NoteItem[] => (
   Array.isArray(items)
     ? items.map((item) => ({
@@ -90,9 +97,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         const savedTomorrow = Array.isArray(parsed.shoppingTomorrow) ? normalizeShoppingItems(parsed.shoppingTomorrow) : legacyShopping;
         const savedToday = Array.isArray(parsed.shoppingToday) ? normalizeShoppingItems(parsed.shoppingToday) : [];
         const shouldRollOver = Boolean(parsed.shoppingTomorrowDate && parsed.shoppingTomorrowDate !== tomorrowDateKey());
+        const rolledOver = rollShoppingItemsToToday(savedToday, savedTomorrow, shouldRollOver);
         setNotes({
-          shoppingToday: shouldRollOver ? [...savedTomorrow, ...savedToday] : savedToday,
-          shoppingTomorrow: shouldRollOver ? [] : savedTomorrow,
+          shoppingToday: rolledOver.shoppingToday,
+          shoppingTomorrow: rolledOver.shoppingTomorrow,
           carry: Array.isArray(parsed.carry) ? parsed.carry : [],
           general: Array.isArray(parsed.general) ? parsed.general : [],
         });
@@ -119,7 +127,10 @@ export function NotesProvider({ children }: { children: ReactNode }) {
         if (!raw) return;
         const parsed = JSON.parse(raw) as { shoppingTomorrowDate?: string };
         if (parsed.shoppingTomorrowDate && parsed.shoppingTomorrowDate !== expectedTomorrow) {
-          setNotes((current) => ({ ...current, shoppingToday: [...current.shoppingTomorrow, ...current.shoppingToday], shoppingTomorrow: [] }));
+          setNotes((current) => {
+            const rolledOver = rollShoppingItemsToToday(current.shoppingToday, current.shoppingTomorrow, true);
+            return { ...current, ...rolledOver };
+          });
         }
       }).catch(() => undefined);
     };
@@ -157,7 +168,12 @@ export function NotesProvider({ children }: { children: ReactNode }) {
       setNotes((current) => replaceListForCategory(current, category, listForCategory(current, category).map((item) => item.id === id ? { ...item, done: !item.done } : item)));
     },
     toggleShoppingItem: (day, id) => {
-      setNotes((current) => replaceListForDay(current, day, listForDay(current, day).map((item) => item.id === id ? { ...item, done: !item.done } : item)));
+      setNotes((current) => {
+        const shopping = listForDay(current, day);
+        const item = shopping.find((entry) => entry.id === id);
+        if (day === 'today' && item && !item.done && (!item.price || item.price <= 0)) return current;
+        return replaceListForDay(current, day, shopping.map((entry) => entry.id === id ? { ...entry, done: !entry.done } : entry));
+      });
     },
     deleteNote: (category, id) => {
       if (category === 'shopping') return;
