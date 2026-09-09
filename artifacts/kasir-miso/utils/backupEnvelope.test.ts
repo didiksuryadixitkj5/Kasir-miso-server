@@ -16,8 +16,9 @@ import {
 } from './backupEnvelope';
 import { addShoppingExpense } from '@/domain/shoppingExpenses';
 import { hydrateWarungState } from '@/domain/menuOrdering';
+import { NOTES_STORAGE_KEY } from '@/context/onlineBackupMetadata';
 
-const isAllowedKey = (key: string) => key.startsWith('warung-');
+const isAllowedKey = (key: string) => key.startsWith('warung-') || key === NOTES_STORAGE_KEY;
 
 describe('backup envelope', () => {
   beforeEach(() => {
@@ -124,6 +125,33 @@ describe('backup envelope', () => {
       restoredBackup.storage['warung-state-v2'],
       async (uri) => uri,
     )).resolves.toMatchObject({ expenses: [legacyExpense] });
+  });
+
+  it('keeps shopping note identity and purchase state in the backup payload', async () => {
+    const notes = {
+      shoppingToday: [{
+        id: 'shopping-1',
+        text: 'Minyak',
+        done: true,
+        createdAt: '2026-09-09T08:00:00.000Z',
+        quantity: 2,
+        unit: 'liter',
+        price: 25_000,
+        expenseRecorded: true,
+      }],
+      shoppingTomorrow: [],
+      carry: [],
+      general: [],
+      shoppingTomorrowDate: '2026-09-10',
+    };
+    const backup = await createStoredBackup({
+      'warung-state-v2': JSON.stringify({ menus: [], inventory: [] }),
+      [NOTES_STORAGE_KEY]: JSON.stringify(notes),
+    });
+
+    const restoredBackup = await parseStoredBackup(JSON.stringify(backup), isAllowedKey);
+
+    expect(JSON.parse(restoredBackup.storage[NOTES_STORAGE_KEY])).toEqual(notes);
   });
 
   it('detects a Drive revision that this device has never observed', () => {

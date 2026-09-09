@@ -4,6 +4,7 @@ import {
   isBackupDataKey,
   isBackupMetadataKey,
   LAST_BACKUP_KEY,
+  NOTES_STORAGE_KEY,
   REMOTE_REVISION_KEY,
 } from './onlineBackupMetadata';
 
@@ -22,6 +23,7 @@ describe('online backup account metadata', () => {
 
   it('never puts account metadata in the business-data backup payload', () => {
     expect(isBackupDataKey('warung-state-v2')).toBe(true);
+    expect(isBackupDataKey(NOTES_STORAGE_KEY)).toBe(true);
     expect(isBackupDataKey(accountMetadataKey(LAST_BACKUP_KEY, 'owner-a@example.com'))).toBe(false);
     expect(isBackupDataKey(accountMetadataKey(REMOTE_REVISION_KEY, 'owner-a@example.com'))).toBe(false);
     expect(isBackupMetadataKey(accountMetadataKey(LAST_BACKUP_KEY, 'owner-a@example.com'))).toBe(true);

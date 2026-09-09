@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { reloadAppAsync } from 'expo';
 import { ApiError } from '@workspace/api-client-react';
 import { useGoogleAccount } from '@/context/GoogleAccountContext';
+import { useNotes } from '@/context/NotesContext';
 import { useWarung } from '@/context/WarungContext';
 import {
   createStoredBackup,
@@ -16,6 +17,7 @@ import {
   isBackupDataKey,
   isBackupMetadataKey,
   LAST_BACKUP_KEY,
+  NOTES_STORAGE_KEY,
   REMOTE_REVISION_KEY,
 } from './onlineBackupMetadata';
 
@@ -44,7 +46,14 @@ type RemoteRevision = {
 
 const OnlineBackupContext = createContext<OnlineBackupContextValue | null>(null);
 
-export { accountMetadataKey, isBackupDataKey, isBackupMetadataKey, LAST_BACKUP_KEY, REMOTE_REVISION_KEY };
+export {
+  accountMetadataKey,
+  isBackupDataKey,
+  isBackupMetadataKey,
+  LAST_BACKUP_KEY,
+  NOTES_STORAGE_KEY,
+  REMOTE_REVISION_KEY,
+};
 
 async function collectBackup(): Promise<StoredBackup> {
   const keys = (await AsyncStorage.getAllKeys()).filter(isBackupDataKey);
@@ -94,6 +103,7 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
     downloadDriveBackup,
   } = useGoogleAccount();
   const warung = useWarung();
+  const notesContext = useNotes();
   const [status, setStatus] = useState<BackupStatus>('idle');
   const [lastBackupAt, setLastBackupAt] = useState('');
   const [error, setError] = useState('');
@@ -116,6 +126,7 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
     savingsRules: warung.savingsRules,
     savingsEntries: warung.savingsEntries,
     qrisImageUri: warung.qrisImageUri,
+    notes: notesContext.notes,
   }), [
     warung.activeOrders,
     warung.consignments,
@@ -127,6 +138,7 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
     warung.sales,
     warung.savingsEntries,
     warung.savingsRules,
+    notesContext.notes,
   ]);
 
   useEffect(() => {
@@ -201,7 +213,11 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
       const originalLastBackupAt = await AsyncStorage.getItem(lastBackupKey);
       const entries = Object.entries(backup.storage);
       const replacementKeys = new Set(entries.map(([key]) => key));
-      const staleKeys = currentKeys.filter((key) => !replacementKeys.has(key));
+      const backupIncludesNotes = Object.prototype.hasOwnProperty.call(backup.storage, NOTES_STORAGE_KEY);
+      const staleKeys = currentKeys.filter((key) => (
+        !replacementKeys.has(key)
+        && (backupIncludesNotes || key !== NOTES_STORAGE_KEY)
+      ));
       const recoveryCreatedAt = new Date().toISOString();
 
       // Keep an excluded, local copy before touching live data. It is retained
@@ -272,7 +288,7 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
   const accountRestorePending = Boolean(currentAccountKey && accountRestoreKey.current !== currentAccountKey);
 
   useEffect(() => {
-    if (!warung.hydrated || !hasDriveAccess || !accountEmail) {
+    if (!warung.hydrated || !notesContext.hydrated || !hasDriveAccess || !accountEmail) {
       if (!hasDriveAccess) {
         accountRestoreKey.current = null;
         setAutoBackupReady(false);
@@ -313,10 +329,10 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
     return () => {
       mounted = false;
     };
-  }, [accountEmail, connectionGeneration, hasDriveAccess, restoreLatest, warung.hydrated]);
+  }, [accountEmail, connectionGeneration, hasDriveAccess, notesContext.hydrated, restoreLatest, warung.hydrated]);
 
   useEffect(() => {
-    if (!hasDriveAccess || !warung.hydrated || !autoBackupReady || accountRestorePending) {
+    if (!hasDriveAccess || !warung.hydrated || !notesContext.hydrated || !autoBackupReady || accountRestorePending) {
       backupBaseline.current = null;
       if (automaticBackupTimer.current) clearTimeout(automaticBackupTimer.current);
       automaticBackupTimer.current = null;
@@ -347,6 +363,7 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
     autoBackupReady,
     businessStateSignature,
     hasDriveAccess,
+    notesContext.hydrated,
     runBackup,
     warung.hydrated,
   ]);

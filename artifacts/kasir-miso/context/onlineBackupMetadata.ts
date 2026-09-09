@@ -1,6 +1,7 @@
 export const GOOGLE_SESSION_TOKEN_KEY = 'warung-google-server-session-v1';
 export const LAST_BACKUP_KEY = 'warung-online-backup-last-v1';
 export const REMOTE_REVISION_KEY = 'warung-online-backup-remote-revision-v1';
+export const NOTES_STORAGE_KEY = 'kasir-miso-notes-v1';
 const RECOVERY_SNAPSHOT_KEY = 'warung-online-restore-recovery-v1';
 const RECOVERY_JOURNAL_KEY = 'warung-online-restore-journal-v1';
 
@@ -27,4 +28,6 @@ export const isBackupMetadataKey = (key: string) => (
   || key.startsWith(`${REMOTE_REVISION_KEY}:`)
 );
 
-export const isBackupDataKey = (key: string) => key.startsWith('warung-') && !isBackupMetadataKey(key);
+export const isBackupDataKey = (key: string) => (
+  (key.startsWith('warung-') || key === NOTES_STORAGE_KEY) && !isBackupMetadataKey(key)
+);

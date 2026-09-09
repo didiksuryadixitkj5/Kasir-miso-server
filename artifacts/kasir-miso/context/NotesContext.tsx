@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { NOTES_STORAGE_KEY } from './onlineBackupMetadata';
 
 export type NoteCategory = 'shopping' | 'carry' | 'general';
 export type ShoppingDay = 'today' | 'tomorrow';
@@ -38,7 +39,6 @@ interface NotesContextValue {
   clearCompleted: (category: NoteCategory) => void;
 }
 
-const NOTES_STORAGE_KEY = 'kasir-miso-notes-v1';
 const createEmptyNotes = (): NotesState => ({ shoppingToday: [], shoppingTomorrow: [], carry: [], general: [] });
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const dateKey = (date: Date) => {
