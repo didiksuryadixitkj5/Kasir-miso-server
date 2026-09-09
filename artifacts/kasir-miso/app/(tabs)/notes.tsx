@@ -380,7 +380,7 @@ function ShoppingRow({
               <TextInput
                 value={item.price ? String(item.price) : ''}
                 onChangeText={(value) => onPriceChange(day, item.id, Number(value.replace(/[^0-9]/g, '')))}
-                editable={!item.done}
+                editable={!item.done && !item.expenseRecorded}
                 keyboardType="number-pad"
                 placeholder="0"
                 placeholderTextColor={c.mutedForeground}
