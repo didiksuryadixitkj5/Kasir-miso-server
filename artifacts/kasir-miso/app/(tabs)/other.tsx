@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert, BackHandler, Modal, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, BackHandler, Image, Modal, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { reloadAppAsync } from 'expo';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { PageHeader, Screen, Surface } from '@/components/WarungUI';
 import { useColors } from '@/hooks/useColors';
 import { useWarung } from '@/context/WarungContext';
 import { useGoogleAccount } from '@/context/GoogleAccountContext';
 import { useOnlineBackup } from '@/context/OnlineBackupContext';
+import { persistImageAsset } from '@/utils/persistentImage';
 
 const OFFLINE_BACKUP_KEY = 'warung-offline-backup-v1';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -78,6 +80,9 @@ export default function OtherScreen() {
   const [accountSheetVisible, setAccountSheetVisible] = useState(false);
   const [notice, setNotice] = useState('');
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoringOffline, setIsRestoringOffline] = useState(false);
+  const [isQrisUploading, setIsQrisUploading] = useState(false);
+  const [qrisSheetVisible, setQrisSheetVisible] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const accountReady = isAccountConnected && hasDriveAccess;
   const isOnlineBusy = onlineBackup.status === 'backing-up' || onlineBackup.status === 'restoring';
@@ -202,6 +207,75 @@ export default function OtherScreen() {
       setNotice('Backup offline belum berhasil. Coba lagi.');
     } finally {
       setIsBackingUp(false);
+    }
+  };
+
+  const handleOfflineRestore = async () => {
+    if (isRestoringOffline) return;
+    try {
+      const raw = await AsyncStorage.getItem(OFFLINE_BACKUP_KEY);
+      if (!raw) {
+        setNotice('Belum ada cadangan offline di perangkat ini. Buat Backup Offline terlebih dahulu.');
+        return;
+      }
+      const parsed = JSON.parse(raw) as { format?: unknown; createdAt?: unknown; data?: unknown };
+      if (parsed.format !== 'kasir-miso-backup' || !parsed.data || typeof parsed.data !== 'object') {
+        setNotice('Cadangan offline tidak dikenali atau sudah rusak.');
+        return;
+      }
+      const backupDate = typeof parsed.createdAt === 'string' ? formatBackupTime(parsed.createdAt).toLowerCase() : 'terakhir tersimpan';
+      Alert.alert(
+        'Pulihkan cadangan offline?',
+        `Data aplikasi akan diganti dengan salinan perangkat ${backupDate}.`,
+        [
+          { text: 'Batal', style: 'cancel' },
+          {
+            text: 'Pulihkan',
+            style: 'destructive',
+            onPress: () => {
+              void (async () => {
+                setIsRestoringOffline(true);
+                try {
+                  await warung.restoreState(parsed.data);
+                  Alert.alert(
+                    'Pemulihan selesai',
+                    'Cadangan offline sudah dipulihkan. Muat ulang aplikasi untuk melihat seluruh data.',
+                    [{ text: 'Muat ulang', onPress: () => void reloadAppAsync() }],
+                  );
+                } catch {
+                  setNotice('Pemulihan offline belum berhasil. Cadangan asli tetap dipertahankan.');
+                } finally {
+                  setIsRestoringOffline(false);
+                }
+              })();
+            },
+          },
+        ],
+      );
+    } catch {
+      setNotice('Cadangan offline tidak bisa dibaca. Buat cadangan baru lalu coba lagi.');
+    }
+  };
+
+  const handleUploadQris = async () => {
+    if (isQrisUploading) return;
+    setIsQrisUploading(true);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 1,
+        base64: true,
+      });
+      if (!result.canceled && result.assets[0]?.uri) {
+        warung.setQrisImageUri(await persistImageAsset(result.assets[0]));
+        setNotice('Gambar QRIS tersimpan dan akan tampil saat pembayaran QRIS dibuka.');
+        setQrisSheetVisible(false);
+      }
+    } catch {
+      setNotice('Gambar QRIS tidak bisa dibuka. Coba pilih gambar lain.');
+    } finally {
+      setIsQrisUploading(false);
     }
   };
 
@@ -363,6 +437,14 @@ export default function OtherScreen() {
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow icon="cube-outline" label="Edit data stok" detail="Kelola menu, bahan baku, dan barang titipan" onPress={() => router.push('/stock-edit')} />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
+        <MenuRow
+          icon="swap-vertical-outline"
+          label="Arus Kas"
+          detail="Lihat uang masuk, keluar, dan saldo bersih"
+          testID="cash-flow-button"
+          onPress={() => router.push('/cash-flow')}
+        />
+        <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow icon="wallet-outline" label="Akun Kas & Bank" onPress={() => showComingSoon('Akun kas & bank')} />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow icon="grid-outline" label="Kelola Kategori" onPress={() => router.push('/inventory')} />
@@ -379,6 +461,14 @@ export default function OtherScreen() {
 
       <Text style={[s.groupTitle, { color: c.mutedForeground }]}>Utilitas</Text>
       <Surface style={s.menuCard}>
+        <MenuRow
+          icon="qr-code-outline"
+          label="Upload QRIS"
+          detail={warung.qrisImageUri ? 'Ganti gambar QRIS pembayaran' : 'Tambahkan gambar QRIS pembayaran'}
+          testID="qris-upload-button"
+          onPress={() => setQrisSheetVisible(true)}
+        />
+        <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow
           icon="cloud-upload-outline"
           label="Backup Online"
@@ -404,6 +494,15 @@ export default function OtherScreen() {
           testID="offline-backup-button"
           disabled={isBackingUp}
           onPress={() => void handleOfflineBackup()}
+        />
+        <View style={[s.rowDivider, { backgroundColor: c.border }]} />
+        <MenuRow
+          icon="refresh-circle-outline"
+          label="Pulihkan Offline"
+          detail={isRestoringOffline ? 'Sedang memulihkan data...' : 'Kembalikan salinan terakhir di perangkat'}
+          testID="offline-restore-button"
+          disabled={isRestoringOffline}
+          onPress={() => void handleOfflineRestore()}
         />
       </Surface>
 
@@ -521,6 +620,59 @@ export default function OtherScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={qrisSheetVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setQrisSheetVisible(false)}
+      >
+        <View style={[s.sheetBackdrop, { backgroundColor: c.foreground + 'B8' }]}>
+          <View style={[s.qrisSheet, { backgroundColor: c.card }]}>
+            <View style={s.sheetTopline}>
+              <View style={[s.sheetGoogleIcon, { backgroundColor: c.secondary }]}>
+                <Ionicons name="qr-code-outline" size={25} color={c.primary} />
+              </View>
+              <Pressable
+                accessibilityLabel="Tutup pengaturan QRIS"
+                onPress={() => setQrisSheetVisible(false)}
+                hitSlop={8}
+              >
+                <Ionicons name="close-circle" size={28} color={c.mutedForeground} />
+              </Pressable>
+            </View>
+            <Text style={[s.sheetKicker, { color: c.primary }]}>PEMBAYARAN DIGITAL</Text>
+            <Text style={[s.sheetTitle, { color: c.foreground }]}>QRIS Warung</Text>
+            <Text style={[s.sheetBody, { color: c.mutedForeground }]}>
+              Simpan gambar QRIS di sini agar kasir bisa langsung menampilkannya saat pelanggan memilih pembayaran QRIS.
+            </Text>
+            {warung.qrisImageUri ? (
+              <Image source={{ uri: warung.qrisImageUri }} resizeMode="contain" style={s.qrisPreview} />
+            ) : (
+              <View style={[s.qrisEmpty, { backgroundColor: c.secondary, borderColor: c.border }]}>
+                <Ionicons name="image-outline" size={28} color={c.primary} />
+                <Text style={[s.qrisEmptyText, { color: c.mutedForeground }]}>Belum ada gambar QRIS</Text>
+              </View>
+            )}
+            <Pressable
+              testID="choose-qris-image-button"
+              accessibilityRole="button"
+              accessibilityLabel={warung.qrisImageUri ? 'Ganti gambar QRIS' : 'Pilih gambar QRIS'}
+              disabled={isQrisUploading}
+              onPress={() => void handleUploadQris()}
+              style={({ pressed }) => [
+                s.primaryAction,
+                { backgroundColor: c.primary, opacity: pressed || isQrisUploading ? 0.58 : 1 },
+              ]}
+            >
+              <Ionicons name="image-outline" size={19} color={c.primaryForeground} />
+              <Text style={[s.primaryActionText, { color: c.primaryForeground }]}>
+                {isQrisUploading ? 'Membuka galeri...' : warung.qrisImageUri ? 'Ganti gambar QRIS' : 'Pilih gambar QRIS'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -548,6 +700,7 @@ const s = StyleSheet.create({
   noticeText: { flex: 1, fontSize: 11, lineHeight: 16, fontWeight: '700' },
   sheetBackdrop: { flex: 1, justifyContent: 'flex-end' },
   accountSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 28 },
+  qrisSheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 18, paddingBottom: 28 },
   sheetTopline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
   sheetGoogleIcon: { width: 50, height: 50, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   sheetKicker: { fontSize: 10, fontWeight: '800', letterSpacing: 1.3 },
@@ -559,6 +712,9 @@ const s = StyleSheet.create({
   primaryActionText: { fontSize: 14, fontWeight: '800' },
   secondaryAction: { minHeight: 45, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   secondaryActionText: { fontSize: 12, fontWeight: '800' },
+  qrisPreview: { width: 220, height: 220, alignSelf: 'center', marginTop: 18, borderRadius: 16 },
+  qrisEmpty: { width: 220, height: 160, alignSelf: 'center', marginTop: 18, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 7 },
+  qrisEmptyText: { fontSize: 12, fontWeight: '700' },
   actionCard: { minHeight: 148, padding: 17, flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   actionIcon: { width: 58, height: 58, borderRadius: 19, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
   actionCopy: { flex: 1 },

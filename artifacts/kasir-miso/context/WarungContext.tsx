@@ -103,6 +103,7 @@ export interface WarungState {
 }
 interface ContextValue extends WarungState {
   hydrated: boolean;
+  restoreState: (nextState: unknown) => Promise<void>;
   addMenu: (name: string, price: number, recipe?: Record<string, number>, category?: string, imageUri?: string) => void;
   updateMenu: (id: string, name: string, price: number, recipe?: Record<string, number>, category?: string, imageUri?: string) => void;
   deleteMenu: (id: string) => void;
@@ -162,6 +163,11 @@ export function WarungProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ContextValue>(() => ({
     ...state,
     hydrated,
+    restoreState: async nextState => {
+      const restored = await hydrateWarungState(JSON.stringify(nextState), persistImageUri);
+      await persistWarungState(restored, AsyncStorage.setItem);
+      setState(restored);
+    },
     addMenu: (name, price, recipe = {}, category = 'Lainnya', imageUri) => setState(s => ({ ...s, menus: [...s.menus, { id: makeId(), name, price, recipe, category, imageUri }] })),
     updateMenu: (id, name, price, recipe = {}, category = 'Lainnya', imageUri) => setState(s => ({ ...s, menus: s.menus.map(item => item.id === id ? { ...item, name, price, recipe, category, imageUri } : item) })),
     deleteMenu: id => setState(s => ({ ...s, menus: s.menus.filter(item => item.id !== id) })),
