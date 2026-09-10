@@ -395,6 +395,7 @@ describe("Google backup upload persistence", () => {
       "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,modifiedTime",
     );
     expect(driveUploadBodies[0].body).toContain(content);
+    expect(driveRequests.filter((url) => url.includes("?fields=id,modifiedTime"))).toHaveLength(0);
     expect(connection?.drive_file_id).toBe(createdBackupFile.id);
   });
 
