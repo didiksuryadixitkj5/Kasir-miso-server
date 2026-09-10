@@ -15,7 +15,7 @@ import { BlurView } from 'expo-blur';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const TAB_ROUTES = ['/', '/kitchen', '/notes', '/other'] as const;
+const TAB_ROUTES = ['/', '/kitchen', '/notes', '/calculator', '/other'] as const;
 
 function getTabIndex(pathname: string) {
   const normalizedPath = pathname.replace(/\/+$/, '') || '/';
@@ -216,6 +216,14 @@ function ClassicTabLayout() {
             title: 'Catatan',
             tabBarLabel: tabLabel('Catatan'),
             tabBarIcon: tabIcon('edit-3'),
+          }}
+        />
+        <Tabs.Screen
+          name="calculator"
+          options={{
+            title: 'Kalkulator',
+            tabBarLabel: tabLabel('Hitung'),
+            tabBarIcon: tabIcon('grid'),
           }}
         />
         <Tabs.Screen name="inventory" options={{ href: null }} />
