@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@workspace/api-client-react';
 import {
   createStoredBackup,
+  parseStoredBackup,
   type StoredBackup,
 } from '@/utils/backupEnvelope';
 import {
@@ -159,6 +160,7 @@ function probe(renderer: ReactTestRenderer) {
     lastBackupAt: string;
     error: string;
     accountRestoreStatus: string;
+    backupNow: () => Promise<string>;
     restoreLatest: () => Promise<string>;
   };
 }
@@ -352,6 +354,93 @@ describe('OnlineBackupProvider restoreLatest', () => {
     expect(probe(renderer)).toMatchObject({
       status: 'success',
       lastBackupAt: incoming.createdAt,
+    });
+  });
+
+  it('round-trips shopping expense and note state from one device to empty storage', async () => {
+    const sourceState = {
+      menus: [],
+      activeOrders: [],
+      kitchenOrders: [],
+      inventory: [],
+      consignments: [],
+      expenses: [{
+        id: 'expense-device-transfer',
+        title: 'Belanja hari ini · Minyak',
+        amount: 25_000,
+        date: '2026-09-10',
+        shoppingItemId: 'shopping-device-transfer',
+      }],
+      sales: [],
+      savingsRules: [],
+      savingsEntries: [],
+    };
+    const sourceNotes = {
+      shoppingToday: [{
+        id: 'shopping-device-transfer',
+        text: 'Minyak',
+        done: true,
+        createdAt: '2026-09-10T07:00:00.000Z',
+        quantity: 2,
+        unit: 'liter',
+        price: 25_000,
+        expenseRecorded: true,
+      }],
+      shoppingTomorrow: [],
+      carry: [],
+      general: [],
+      shoppingTomorrowDate: '2026-09-11',
+    };
+
+    testState.data.set('warung-state-v2', JSON.stringify(sourceState));
+    testState.data.set(NOTES_STORAGE_KEY, JSON.stringify(sourceNotes));
+    googleAccountState.downloadDriveBackup.mockRejectedValue(
+      new ApiError(
+        new Response(null, { status: 404, statusText: 'Not Found' }),
+        null,
+        { method: 'GET', url: '/google/drive/backup' },
+      ),
+    );
+    let uploadedContent = '';
+    googleAccountState.uploadDriveBackup.mockImplementation(async (content: string) => {
+      uploadedContent = content;
+      return { modifiedTime: '2026-09-10T08:30:00.000Z' };
+    });
+
+    const sourceRenderer = renderBackup();
+    await act(async () => {
+      await expect(probe(sourceRenderer).backupNow()).resolves.toBeTruthy();
+    });
+    const uploadedBackup = await parseStoredBackup(uploadedContent, isBackupDataKey);
+    expect(JSON.parse(uploadedBackup.storage['warung-state-v2'])).toEqual(sourceState);
+    expect(JSON.parse(uploadedBackup.storage[NOTES_STORAGE_KEY])).toEqual(sourceNotes);
+
+    sourceRenderer.unmount();
+    testState.data.clear();
+    googleAccountState.downloadDriveBackup.mockResolvedValue({
+      content: uploadedContent,
+      modifiedTime: '2026-09-10T08:30:00.000Z',
+    });
+
+    const destinationRenderer = renderBackup();
+    await act(async () => {
+      await expect(probe(destinationRenderer).restoreLatest()).resolves.toBe(uploadedBackup.createdAt);
+    });
+
+    expect(JSON.parse(testState.data.get('warung-state-v2')!)).toMatchObject({
+      expenses: [{
+        id: 'expense-device-transfer',
+        amount: 25_000,
+        shoppingItemId: 'shopping-device-transfer',
+      }],
+    });
+    expect(JSON.parse(testState.data.get(NOTES_STORAGE_KEY)!)).toMatchObject({
+      shoppingToday: [{
+        id: 'shopping-device-transfer',
+        price: 25_000,
+        done: true,
+        expenseRecorded: true,
+      }],
     });
   });
 
