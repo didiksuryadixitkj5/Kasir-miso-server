@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useRef } from 'react';
 import {
   Animated,
+  Easing,
   PanResponder,
   Platform,
   StyleSheet,
@@ -67,11 +68,11 @@ function ClassicTabLayout() {
       const nextIndex = currentTabIndexRef.current + direction;
 
       if (nextIndex < 0 || nextIndex >= TAB_ROUTES.length || isAnimatingSwipeRef.current) {
-        Animated.spring(swipeX, {
+        Animated.timing(swipeX, {
           toValue: 0,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
-          tension: 90,
-          friction: 11,
         }).start();
         return;
       }
@@ -93,11 +94,11 @@ function ClassicTabLayout() {
 
         router.replace(TAB_ROUTES[nextIndex]);
         swipeX.setValue(enterOffset);
-        Animated.spring(swipeX, {
+        Animated.timing(swipeX, {
           toValue: 0,
+          duration: 220,
+          easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
-          tension: 75,
-          friction: 10,
         }).start(() => {
           isAnimatingSwipeRef.current = false;
         });
@@ -122,11 +123,11 @@ function ClassicTabLayout() {
             Math.abs(gestureState.dx) < 60 ||
             Math.abs(gestureState.dx) < Math.abs(gestureState.dy)
           ) {
-            Animated.spring(swipeX, {
+            Animated.timing(swipeX, {
               toValue: 0,
+              duration: 180,
+              easing: Easing.out(Easing.cubic),
               useNativeDriver: true,
-              tension: 90,
-              friction: 11,
             }).start();
             return;
           }
@@ -134,11 +135,11 @@ function ClassicTabLayout() {
           navigateBySwipe(gestureState.dx < 0 ? 1 : -1);
         },
         onPanResponderTerminate: () => {
-          Animated.spring(swipeX, {
+          Animated.timing(swipeX, {
             toValue: 0,
+            duration: 180,
+            easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-            tension: 90,
-            friction: 11,
           }).start();
         },
       }),
