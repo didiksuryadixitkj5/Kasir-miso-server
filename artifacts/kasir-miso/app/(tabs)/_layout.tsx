@@ -78,13 +78,13 @@ function ClassicTabLayout() {
       }
 
       isAnimatingSwipeRef.current = true;
-      const swipeDistance = Math.min(96, Math.max(72, width * 0.24));
+      const swipeDistance = Math.min(68, Math.max(52, width * 0.18));
       const exitOffset = direction > 0 ? -swipeDistance : swipeDistance;
       const enterOffset = -exitOffset;
 
       Animated.timing(swipeX, {
         toValue: exitOffset,
-        duration: 180,
+        duration: 205,
         useNativeDriver: true,
       }).start(({ finished }) => {
         if (!finished) {
@@ -96,7 +96,7 @@ function ClassicTabLayout() {
         swipeX.setValue(enterOffset);
         Animated.timing(swipeX, {
           toValue: 0,
-          duration: 220,
+          duration: 250,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }).start(() => {
@@ -115,12 +115,15 @@ function ClassicTabLayout() {
           Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.2,
         onPanResponderMove: (_, gestureState) => {
           if (!isAnimatingSwipeRef.current) {
-            swipeX.setValue(gestureState.dx);
+            const swipeLimit = Math.min(68, Math.max(52, width * 0.18));
+            const resistedDistance = gestureState.dx * 0.78;
+            swipeX.setValue(Math.max(-swipeLimit, Math.min(swipeLimit, resistedDistance)));
           }
         },
         onPanResponderRelease: (_, gestureState) => {
+          const swipeThreshold = Math.max(46, width * 0.14);
           if (
-            Math.abs(gestureState.dx) < 60 ||
+            Math.abs(gestureState.dx) < swipeThreshold ||
             Math.abs(gestureState.dx) < Math.abs(gestureState.dy)
           ) {
             Animated.timing(swipeX, {
