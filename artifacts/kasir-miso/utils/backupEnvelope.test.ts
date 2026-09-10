@@ -10,8 +10,10 @@ vi.mock('expo-crypto', () => ({
 }));
 
 import {
+  createOfflineBackup,
   createStoredBackup,
   hasRemoteRevisionConflict,
+  parseOfflineBackup,
   parseStoredBackup,
 } from './backupEnvelope';
 import { addShoppingExpense } from '@/domain/shoppingExpenses';
@@ -35,6 +37,34 @@ describe('backup envelope', () => {
     expect(backup.checksumAlgorithm).toBe('sha256');
     expect(backup.payloadChecksum).toMatch(/^[a-f0-9]{64}$/);
     await expect(parseStoredBackup(JSON.stringify(backup), isAllowedKey)).resolves.toEqual(backup);
+  });
+
+  it('creates and validates a portable offline backup file', () => {
+    const backup = createOfflineBackup({
+      menus: [],
+      expenses: [{ id: 'expense-1', title: 'Gas', amount: 10_000, date: '2026-09-10' }],
+      qrisImageUri: null,
+    });
+
+    expect(parseOfflineBackup(JSON.stringify(backup))).toEqual(backup);
+  });
+
+  it('rejects an invalid offline file before it can be restored', () => {
+    expect(() => parseOfflineBackup('{not-json')).toThrow('bukan JSON yang valid');
+    expect(() => parseOfflineBackup(JSON.stringify({
+      format: 'kasir-miso-backup',
+      version: 1,
+      target: 'offline',
+      createdAt: '2026-09-10T10:00:00.000Z',
+      data: { inventory: 'not-an-array' },
+    }))).toThrow('bagian inventory tidak valid');
+    expect(() => parseOfflineBackup(JSON.stringify({
+      format: 'kasir-miso-backup',
+      version: 1,
+      target: 'offline',
+      createdAt: '2026-09-10T10:00:00.000Z',
+      data: { qrisImageUri: 123 },
+    }))).toThrow('Data QRIS');
   });
 
   it('rejects a backup whose business data was modified after creation', async () => {
