@@ -390,14 +390,25 @@ router.put("/google/backup", async (req, res) => {
         body: content,
       });
       if (!response.ok) return sendError(res, response.status, "Backup Google Drive belum dapat diperbarui.");
-      const updated = (await fetch(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,modifiedTime`, {
+      const metadataResponse = await fetch(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,modifiedTime`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-      })).ok
-        ? (await (await fetch(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,modifiedTime`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        })).json()) as GoogleFile
-        : null;
-      modifiedTime = updated?.modifiedTime ?? modifiedTime;
+      });
+      if (!metadataResponse.ok) {
+        return sendError(
+          res,
+          502,
+          "Backup Google Drive sudah diperbarui, tetapi waktu perubahannya belum dapat dikonfirmasi.",
+        );
+      }
+      const updated = (await metadataResponse.json()) as GoogleFile;
+      if (!updated.modifiedTime) {
+        return sendError(
+          res,
+          502,
+          "Backup Google Drive sudah diperbarui, tetapi waktu perubahannya belum dapat dikonfirmasi.",
+        );
+      }
+      modifiedTime = updated.modifiedTime;
     } else {
       const boundary = `kasir-miso-${randomBytes(12).toString("hex")}`;
       const metadata = JSON.stringify({ name: BACKUP_FILE_NAME, mimeType: "application/json" });
