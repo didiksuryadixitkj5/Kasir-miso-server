@@ -398,6 +398,31 @@ describe("Google backup upload persistence", () => {
     expect(connection?.drive_file_id).toBe(createdBackupFile.id);
   });
 
+  it("reports when a newly created Drive file has no confirmed modified time", async () => {
+    const sessionToken = await createValidGoogleSession();
+    const content = '{"storage":{}}';
+    listedBackupFile = null;
+    createdBackupFile = { id: "drive-file-created-without-time" };
+    tokenResponses.push({ access_token: "access-drive" });
+
+    const response = await apiRequest("/google/backup", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ content }),
+    });
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      message: "Backup Google Drive sudah dibuat, tetapi waktu perubahannya belum dapat dikonfirmasi.",
+    });
+    expect(driveUploadBodies).toHaveLength(1);
+    expect(connection?.drive_file_id).toBe(createdBackupFile.id);
+  });
+
   it("returns the complete large backup body and its Drive modified time", async () => {
     const sessionToken = await createValidGoogleSession();
     const fileId = "drive-file-large-download";

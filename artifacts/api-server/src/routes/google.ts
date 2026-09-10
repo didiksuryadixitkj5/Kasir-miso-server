@@ -379,7 +379,7 @@ router.put("/google/backup", async (req, res) => {
     }
 
     let fileId = file?.id;
-    let modifiedTime = new Date().toISOString();
+    let modifiedTime: string;
     if (fileId) {
       const response = await fetch(`${GOOGLE_UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media`, {
         method: "PATCH",
@@ -435,7 +435,15 @@ router.put("/google/backup", async (req, res) => {
       const created = (await response.json()) as GoogleFile;
       if (!response.ok || !created.id) return sendError(res, response.status, "Backup Google Drive belum dapat dibuat.");
       fileId = created.id;
-      modifiedTime = created.modifiedTime ?? modifiedTime;
+      if (!created.modifiedTime) {
+        await updateDriveFileId(connection.device_id, created.id);
+        return sendError(
+          res,
+          502,
+          "Backup Google Drive sudah dibuat, tetapi waktu perubahannya belum dapat dikonfirmasi.",
+        );
+      }
+      modifiedTime = created.modifiedTime;
     }
     if (fileId) await updateDriveFileId(connection.device_id, fileId);
     return res.json({ modifiedTime });
