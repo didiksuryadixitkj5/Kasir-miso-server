@@ -79,7 +79,7 @@ function ClassicTabLayout() {
         setPreviewTabIndex(null);
         Animated.timing(swipeX, {
           toValue: 0,
-          duration: 180,
+          duration: 240,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }).start();
@@ -89,13 +89,14 @@ function ClassicTabLayout() {
       isAnimatingSwipeRef.current = true;
       swipeDirectionRef.current = direction;
       setPreviewTabIndex(nextIndex);
-      const swipeDistance = Math.min(68, Math.max(52, width * 0.18));
+      const swipeDistance = Math.min(104, Math.max(84, width * 0.24));
       const exitOffset = direction > 0 ? -swipeDistance : swipeDistance;
       const enterOffset = -exitOffset;
 
       Animated.timing(swipeX, {
         toValue: exitOffset,
-        duration: 205,
+        duration: 275,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start(({ finished }) => {
         if (!finished) {
@@ -107,7 +108,7 @@ function ClassicTabLayout() {
         swipeX.setValue(enterOffset);
         Animated.timing(swipeX, {
           toValue: 0,
-          duration: 250,
+          duration: 340,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }).start(() => {
@@ -133,8 +134,8 @@ function ClassicTabLayout() {
             setPreviewTabIndex(
               nextIndex >= 0 && nextIndex < TAB_ROUTES.length ? nextIndex : null,
             );
-            const swipeLimit = Math.min(68, Math.max(52, width * 0.18));
-            const resistedDistance = gestureState.dx * 0.78;
+            const swipeLimit = Math.min(104, Math.max(84, width * 0.24));
+            const resistedDistance = gestureState.dx * 0.88;
             swipeX.setValue(Math.max(-swipeLimit, Math.min(swipeLimit, resistedDistance)));
           }
         },
@@ -147,7 +148,7 @@ function ClassicTabLayout() {
             setPreviewTabIndex(null);
             Animated.timing(swipeX, {
               toValue: 0,
-              duration: 180,
+              duration: 240,
               easing: Easing.out(Easing.cubic),
               useNativeDriver: true,
             }).start();
@@ -160,7 +161,7 @@ function ClassicTabLayout() {
           setPreviewTabIndex(null);
           Animated.timing(swipeX, {
             toValue: 0,
-            duration: 180,
+            duration: 240,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }).start();
