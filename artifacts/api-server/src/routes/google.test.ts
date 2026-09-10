@@ -565,6 +565,48 @@ describe("Google backup upload persistence", () => {
     expect(driveRequests.some((url) => url.includes("orderBy=modifiedTime%20desc"))).toBe(true);
     expect(connection?.drive_file_id).toBe(newerFile.id);
   });
+
+  it("stops download when Drive cannot confirm an old backup file", async () => {
+    const sessionToken = await createValidGoogleSession();
+    const staleFileId = "drive-file-stale-download";
+    connection!.drive_file_id = staleFileId;
+    backupFileLookupResponseStatus = 404;
+    backupSearchResponseStatus = 503;
+    tokenResponses.push({ access_token: "access-drive" });
+
+    const response = await apiRequest("/google/backup", {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+      },
+    });
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      message: "Status backup Google Drive belum dapat dipastikan. Coba lagi saat koneksi Google Drive tersedia.",
+    });
+    expect(driveRequests.some((url) => url.includes("?alt=media"))).toBe(false);
+    expect(connection?.drive_file_id).toBe(staleFileId);
+  });
+
+  it("keeps the not-found response when no backup exists", async () => {
+    const sessionToken = await createValidGoogleSession();
+    listedBackupFile = null;
+    tokenResponses.push({ access_token: "access-drive" });
+
+    const response = await apiRequest("/google/backup", {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+      },
+    });
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      message: "Backup Kasir Miso belum tersedia di Google Drive.",
+    });
+    expect(driveRequests.some((url) => url.includes("?alt=media"))).toBe(false);
+  });
 });
 
 describe("Google backup request size handling", () => {
