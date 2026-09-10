@@ -28,6 +28,7 @@ export default function NotesScreen() {
   const [composerCategory, setComposerCategory] = useState<NoteCategory>('general');
   const [noteSubject, setNoteSubject] = useState('');
   const [noteBody, setNoteBody] = useState('');
+  const [openedNote, setOpenedNote] = useState<{ item: NoteItem; category: NoteCategory } | null>(null);
   const option = categoryOptions.find((item) => item.id === selected) ?? categoryOptions[0];
   const shoppingItems = shoppingDay === 'today' ? notes.shoppingToday : notes.shoppingTomorrow;
   const activeNotes = selected === 'shopping' ? shoppingItems : notes[selected];
@@ -165,7 +166,7 @@ export default function NotesScreen() {
       {pendingNotes.length ? (
         <View style={s.noteList}>
           {pendingNotes.map((item) => (
-            <NoteRow key={item.id} item={item} category={selected} onToggle={toggleNote} onDelete={deleteNote} />
+            <NoteRow key={item.id} item={item} category={selected} onToggle={toggleNote} onDelete={deleteNote} onOpen={() => setOpenedNote({ item, category: selected })} />
           ))}
         </View>
       ) : (
@@ -180,7 +181,7 @@ export default function NotesScreen() {
         <View style={s.completedSection}>
           <Text style={[s.completedLabel, { color: c.mutedForeground }]}>SUDAH SELESAI · {completedNotes.length}</Text>
           {completedNotes.map((item) => (
-            <NoteRow key={item.id} item={item} category={selected} onToggle={toggleNote} onDelete={deleteNote} />
+            <NoteRow key={item.id} item={item} category={selected} onToggle={toggleNote} onDelete={deleteNote} onOpen={() => setOpenedNote({ item, category: selected })} />
           ))}
         </View>
       ) : null}
@@ -196,6 +197,11 @@ export default function NotesScreen() {
         onBodyChange={setNoteBody}
         onClose={closeComposer}
         onSubmit={submit}
+      />
+      <NoteDetailModal
+        note={openedNote?.item ?? null}
+        category={openedNote?.category ?? 'general'}
+        onClose={() => setOpenedNote(null)}
       />
     </Screen>
   );
@@ -555,11 +561,13 @@ function NoteRow({
   category,
   onToggle,
   onDelete,
+  onOpen,
 }: {
   item: Pick<NoteItem, 'id' | 'text' | 'done' | 'createdAt'>;
   category: NoteCategory;
   onToggle: (category: NoteCategory, id: string) => void;
   onDelete: (category: NoteCategory, id: string) => void;
+  onOpen: () => void;
 }) {
   const c = useColors();
   const [subject, ...bodyLines] = item.text.split('\n');
@@ -579,11 +587,17 @@ function NoteRow({
       >
         {item.done ? <Ionicons name="checkmark" size={16} color={c.primaryForeground} /> : null}
       </Pressable>
-      <View style={s.noteCopy}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Buka catatan ${subject || 'tanpa judul'}`}
+        onPress={onOpen}
+        style={s.noteCopy}
+      >
         <Text numberOfLines={1} style={[s.noteSubject, { color: item.done ? c.mutedForeground : c.foreground, textDecorationLine: item.done ? 'line-through' : 'none' }]}>{subject || 'Tanpa judul'}</Text>
         <Text numberOfLines={1} style={[s.notePreview, { color: c.mutedForeground }]}>{preview}</Text>
-      </View>
+      </Pressable>
       <Text style={[s.noteDate, { color: item.done ? c.mutedForeground : c.primary }]}>{timeLabel}</Text>
+      <Ionicons name="chevron-forward" size={15} color={c.mutedForeground} />
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Hapus ${item.text}`}
@@ -594,6 +608,70 @@ function NoteRow({
         <Ionicons name="trash-outline" size={17} color={c.mutedForeground} />
       </Pressable>
     </Surface>
+  );
+}
+
+function NoteDetailModal({
+  note,
+  category,
+  onClose,
+}: {
+  note: NoteItem | null;
+  category: NoteCategory;
+  onClose: () => void;
+}) {
+  const c = useColors();
+  const insets = useSafeAreaInsets();
+  if (!note) return null;
+
+  const [subject, ...bodyLines] = note.text.split('\n');
+  const body = bodyLines.join('\n').trim();
+  const createdAt = new Date(note.createdAt);
+  const dateLabel = Number.isNaN(createdAt.getTime())
+    ? ''
+    : createdAt.toLocaleString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const categoryLabel = category === 'carry' ? 'Perlu dibawa' : 'Catatan biasa';
+
+  return (
+    <Modal visible animationType="slide" onRequestClose={onClose}>
+      <View style={[s.composeRoot, { backgroundColor: c.background }]}>
+        <ScrollView
+          contentContainerStyle={[s.detailContent, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={s.composeHeader}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Tutup detail catatan" onPress={onClose} hitSlop={8} style={s.composeIconButton}>
+              <Ionicons name="arrow-back" size={24} color={c.foreground} />
+            </Pressable>
+            <View style={s.composeHeaderCopy}>
+              <Text style={[s.composeKicker, { color: c.primary }]}>DETAIL CATATAN</Text>
+              <Text style={[s.composeTitle, { color: c.foreground }]}>Catatan</Text>
+            </View>
+            <View style={[s.detailStatus, { backgroundColor: note.done ? c.secondary : c.primary }]}>
+              <Ionicons name={note.done ? 'checkmark' : 'mail-open-outline'} size={15} color={note.done ? c.secondaryForeground : c.primaryForeground} />
+              <Text style={[s.detailStatusText, { color: note.done ? c.secondaryForeground : c.primaryForeground }]}>{note.done ? 'Selesai' : 'Aktif'}</Text>
+            </View>
+          </View>
+
+          <Surface style={s.detailCard}>
+            <View style={s.detailMeta}>
+              <View style={[s.composeAvatar, { backgroundColor: c.secondary }]}>
+                <Ionicons name={category === 'carry' ? 'bag-handle-outline' : 'create-outline'} size={19} color={c.primary} />
+              </View>
+              <View style={s.composeMetaCopy}>
+                <Text style={[s.composeMetaValue, { color: c.foreground }]}>{categoryLabel}</Text>
+                <Text style={[s.composeMetaLabel, { color: c.mutedForeground }]}>{dateLabel}</Text>
+              </View>
+            </View>
+            <View style={[s.detailDivider, { backgroundColor: c.border }]} />
+            <Text style={[s.detailSubject, { color: c.foreground }]}>{subject || 'Tanpa judul'}</Text>
+            <Text style={[s.detailBody, { color: body ? c.foreground : c.mutedForeground }]}>
+              {body || 'Catatan ini tidak memiliki isi tambahan.'}
+            </Text>
+          </Surface>
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -683,4 +761,12 @@ const s = StyleSheet.create({
   composeBodyField: { borderTopWidth: 1, paddingHorizontal: 15, paddingTop: 13 },
   bodyInput: { minHeight: 220, fontSize: 14, lineHeight: 21 },
   composeHint: { fontSize: 11, lineHeight: 17, marginTop: 12, paddingHorizontal: 4 },
+  detailContent: { paddingHorizontal: 16 },
+  detailStatus: { minHeight: 32, borderRadius: 10, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  detailStatusText: { fontSize: 10, fontWeight: '800' },
+  detailCard: { padding: 0, overflow: 'hidden' },
+  detailMeta: { flexDirection: 'row', alignItems: 'center', padding: 15 },
+  detailDivider: { height: 1, marginHorizontal: 15 },
+  detailSubject: { fontSize: 21, lineHeight: 27, fontWeight: '800', paddingHorizontal: 15, paddingTop: 17 },
+  detailBody: { fontSize: 14, lineHeight: 22, paddingHorizontal: 15, paddingTop: 13, paddingBottom: 22 },
 });
