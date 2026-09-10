@@ -91,7 +91,7 @@ const tokenResponses: Array<Record<string, unknown>> = [];
 const userinfoResponses: Array<Record<string, unknown>> = [];
 const driveRequests: string[] = [];
 const driveUploadBodies: Array<{ method: string; url: string; body: string }> = [];
-let listedBackupFile: DriveFile | null | undefined;
+let listedBackupFile: DriveFile | DriveFile[] | null | undefined;
 let updatedBackupFile: DriveFile = {
   id: "drive-file-b",
   modifiedTime: "2026-09-04T10:00:00.000Z",
@@ -147,12 +147,18 @@ const googleFetch = vi.fn(async (input: string | URL | Request, init?: RequestIn
     return jsonResponse(updatedBackupFile, updatedMetadataResponseStatus);
   }
   if (url.startsWith("https://www.googleapis.com/drive/v3/files?")) {
+    const files = listedBackupFile === undefined
+      ? [{ id: "drive-file-b", name: "Kasir Miso Backup.json", modifiedTime: "2026-09-04T10:00:00.000Z" }]
+      : listedBackupFile === null
+        ? []
+        : Array.isArray(listedBackupFile)
+          ? listedBackupFile
+          : [listedBackupFile];
+    const orderedFiles = url.includes("orderBy=modifiedTime%20desc")
+      ? [...files].sort((a, b) => (b.modifiedTime ?? "").localeCompare(a.modifiedTime ?? ""))
+      : files;
     return jsonResponse({
-      files: listedBackupFile === undefined
-        ? [{ id: "drive-file-b", name: "Kasir Miso Backup.json", modifiedTime: "2026-09-04T10:00:00.000Z" }]
-        : listedBackupFile
-          ? [listedBackupFile]
-          : [],
+      files: orderedFiles,
     }, backupSearchResponseStatus);
   }
   if (url.includes("?alt=media")) {
@@ -346,6 +352,40 @@ describe("Google backup upload persistence", () => {
     expect(connection?.drive_file_id).toBe("drive-file-existing");
   });
 
+  it("updates the newest matching Drive backup when multiple files exist", async () => {
+    const sessionToken = await createValidGoogleSession();
+    const olderFile = {
+      id: "drive-file-older",
+      name: "Kasir Miso Backup.json",
+      modifiedTime: "2026-09-04T10:00:00.000Z",
+    };
+    const newerFile = {
+      id: "drive-file-newer",
+      name: "Kasir Miso Backup.json",
+      modifiedTime: "2026-09-08T10:00:00.000Z",
+    };
+    listedBackupFile = [olderFile, newerFile];
+    updatedBackupFile = newerFile;
+    tokenResponses.push({ access_token: "access-drive" });
+
+    const response = await apiRequest("/google/backup", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ content: '{"storage":{}}' }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ modifiedTime: newerFile.modifiedTime });
+    expect(driveUploadBodies).toHaveLength(1);
+    expect(driveUploadBodies[0].url).toContain(`/drive/v3/files/${newerFile.id}?uploadType=media`);
+    expect(driveRequests.some((url) => url.includes("orderBy=modifiedTime%20desc"))).toBe(true);
+    expect(connection?.drive_file_id).toBe(newerFile.id);
+  });
+
   it("does not create a duplicate when Drive cannot confirm an old backup file", async () => {
     const sessionToken = await createValidGoogleSession();
     const staleFileId = "drive-file-stale";
@@ -489,6 +529,41 @@ describe("Google backup upload persistence", () => {
       `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
     );
     expect(connection?.drive_file_id).toBe(fileId);
+  });
+
+  it("downloads the newest matching Drive backup when multiple files exist", async () => {
+    const sessionToken = await createValidGoogleSession();
+    const olderFile = {
+      id: "drive-file-older-download",
+      name: "Kasir Miso Backup.json",
+      modifiedTime: "2026-09-04T10:00:00.000Z",
+    };
+    const newerFile = {
+      id: "drive-file-newer-download",
+      name: "Kasir Miso Backup.json",
+      modifiedTime: "2026-09-08T10:00:00.000Z",
+    };
+    listedBackupFile = [olderFile, newerFile];
+    downloadedBackupContent = '{"storage":{"source":"newest"}}';
+    tokenResponses.push({ access_token: "access-drive" });
+
+    const response = await apiRequest("/google/backup", {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+      },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      content: downloadedBackupContent,
+      modifiedTime: newerFile.modifiedTime,
+    });
+    expect(driveRequests).toContain(
+      `https://www.googleapis.com/drive/v3/files/${newerFile.id}?alt=media`,
+    );
+    expect(driveRequests.some((url) => url.includes("orderBy=modifiedTime%20desc"))).toBe(true);
+    expect(connection?.drive_file_id).toBe(newerFile.id);
   });
 });
 

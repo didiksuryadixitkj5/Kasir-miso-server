@@ -241,9 +241,13 @@ async function findBackupFile(accessToken: string, fileId?: string | null) {
     if (response.status !== 404) throw new Error(BACKUP_LOOKUP_UNAVAILABLE);
   }
   const query = encodeURIComponent(`name = '${BACKUP_FILE_NAME.replaceAll("'", "\\'")}' and trashed = false`);
-  const response = await fetch(`${GOOGLE_FILES_URL}?q=${query}&fields=files(id,name,modifiedTime)&pageSize=1`, {
+  const orderBy = encodeURIComponent("modifiedTime desc");
+  const response = await fetch(
+    `${GOOGLE_FILES_URL}?q=${query}&fields=files(id,name,modifiedTime)&orderBy=${orderBy}&pageSize=1`,
+    {
     headers: { Authorization: `Bearer ${accessToken}` },
-  });
+    },
+  );
   if (!response.ok) throw new Error(BACKUP_LOOKUP_UNAVAILABLE);
   const data = (await response.json()) as GoogleFilesResponse;
   return data.files?.[0] ?? null;
