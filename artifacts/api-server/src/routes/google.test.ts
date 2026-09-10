@@ -96,6 +96,8 @@ let updatedBackupFile: DriveFile = {
   id: "drive-file-b",
   modifiedTime: "2026-09-04T10:00:00.000Z",
 };
+let backupFileLookupResponseStatus = 200;
+let backupSearchResponseStatus = 200;
 let updatedMetadataResponseStatus = 200;
 let createdBackupFile: DriveFile = {
   id: "drive-file-created",
@@ -139,7 +141,7 @@ const googleFetch = vi.fn(async (input: string | URL | Request, init?: RequestIn
     return jsonResponse(createdBackupFile);
   }
   if (url.startsWith("https://www.googleapis.com/drive/v3/files/") && url.includes("?fields=id,name,modifiedTime")) {
-    return jsonResponse(updatedBackupFile);
+    return jsonResponse(updatedBackupFile, backupFileLookupResponseStatus);
   }
   if (url.startsWith("https://www.googleapis.com/drive/v3/files/") && url.includes("?fields=id,modifiedTime")) {
     return jsonResponse(updatedBackupFile, updatedMetadataResponseStatus);
@@ -151,7 +153,7 @@ const googleFetch = vi.fn(async (input: string | URL | Request, init?: RequestIn
         : listedBackupFile
           ? [listedBackupFile]
           : [],
-    });
+    }, backupSearchResponseStatus);
   }
   if (url.includes("?alt=media")) {
     return new Response(downloadedBackupContent, { status: 200 });
@@ -212,6 +214,8 @@ describe("Google connection account isolation", () => {
       id: "drive-file-b",
       modifiedTime: "2026-09-04T10:00:00.000Z",
     };
+    backupFileLookupResponseStatus = 200;
+    backupSearchResponseStatus = 200;
     updatedMetadataResponseStatus = 200;
     createdBackupFile = {
       id: "drive-file-created",
@@ -298,6 +302,8 @@ describe("Google backup upload persistence", () => {
       id: "drive-file-b",
       modifiedTime: "2026-09-04T10:00:00.000Z",
     };
+    backupFileLookupResponseStatus = 200;
+    backupSearchResponseStatus = 200;
     createdBackupFile = {
       id: "drive-file-created",
       modifiedTime: "2026-09-05T10:00:00.000Z",
@@ -338,6 +344,32 @@ describe("Google backup upload persistence", () => {
     });
     expect(driveRequests.filter((url) => url.includes("?fields=id,modifiedTime"))).toHaveLength(1);
     expect(connection?.drive_file_id).toBe("drive-file-existing");
+  });
+
+  it("does not create a duplicate when Drive cannot confirm an old backup file", async () => {
+    const sessionToken = await createValidGoogleSession();
+    const staleFileId = "drive-file-stale";
+    connection!.drive_file_id = staleFileId;
+    backupFileLookupResponseStatus = 404;
+    backupSearchResponseStatus = 503;
+    tokenResponses.push({ access_token: "access-drive" });
+
+    const response = await apiRequest("/google/backup", {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ content: '{"storage":{}}' }),
+    });
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      message: "Status backup Google Drive belum dapat dipastikan. Coba lagi saat koneksi Google Drive tersedia.",
+    });
+    expect(driveUploadBodies).toHaveLength(0);
+    expect(connection?.drive_file_id).toBe(staleFileId);
   });
 
   it("reports when updated Drive metadata cannot be confirmed", async () => {

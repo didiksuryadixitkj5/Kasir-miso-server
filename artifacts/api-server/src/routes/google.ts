@@ -8,6 +8,7 @@ const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const GOOGLE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const GOOGLE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
 const BACKUP_FILE_NAME = "Kasir Miso Backup.json";
+const BACKUP_LOOKUP_UNAVAILABLE = "Status backup Google Drive belum dapat dipastikan. Coba lagi saat koneksi Google Drive tersedia.";
 const SESSION_TTL_DAYS = 30;
 
 type GoogleTokenResponse = {
@@ -237,12 +238,13 @@ async function findBackupFile(accessToken: string, fileId?: string | null) {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (response.ok) return (await response.json()) as GoogleFile;
+    if (response.status !== 404) throw new Error(BACKUP_LOOKUP_UNAVAILABLE);
   }
   const query = encodeURIComponent(`name = '${BACKUP_FILE_NAME.replaceAll("'", "\\'")}' and trashed = false`);
   const response = await fetch(`${GOOGLE_FILES_URL}?q=${query}&fields=files(id,name,modifiedTime)&pageSize=1`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!response.ok) return null;
+  if (!response.ok) throw new Error(BACKUP_LOOKUP_UNAVAILABLE);
   const data = (await response.json()) as GoogleFilesResponse;
   return data.files?.[0] ?? null;
 }
