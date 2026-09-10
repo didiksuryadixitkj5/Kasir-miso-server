@@ -1,10 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { EmptyState, PageHeader, Screen, Surface } from '@/components/WarungUI';
 import { formatRp, useWarung } from '@/context/WarungContext';
 import { NoteCategory, NoteItem, ShoppingDay, useNotes } from '@/context/NotesContext';
 import { useColors } from '@/hooks/useColors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollViewCompat } from '@/components/KeyboardAwareScrollViewCompat';
 
 const categoryOptions: Array<{ id: NoteCategory; label: string; icon: React.ComponentProps<typeof Ionicons>['name']; helper: string }> = [
   { id: 'shopping', label: 'Belanja', icon: 'cart-outline', helper: 'Atur kebutuhan belanja hari ini dan besok.' },
@@ -19,10 +21,13 @@ export default function NotesScreen() {
   const { notes, addNote, addShoppingItem, toggleNote, toggleShoppingItem, deleteNote, deleteShoppingItem, setShoppingPrice, markShoppingExpenseRecorded, changeShoppingQuantity, clearShoppingCompleted, clearCompleted } = useNotes();
   const [selected, setSelected] = useState<NoteCategory>('shopping');
   const [shoppingDay, setShoppingDay] = useState<ShoppingDay>('tomorrow');
-  const [draft, setDraft] = useState('');
   const [shoppingName, setShoppingName] = useState('');
   const [shoppingQuantity, setShoppingQuantity] = useState('1');
   const [shoppingUnit, setShoppingUnit] = useState('pcs');
+  const [composerVisible, setComposerVisible] = useState(false);
+  const [composerCategory, setComposerCategory] = useState<NoteCategory>('general');
+  const [noteSubject, setNoteSubject] = useState('');
+  const [noteBody, setNoteBody] = useState('');
   const option = categoryOptions.find((item) => item.id === selected) ?? categoryOptions[0];
   const shoppingItems = shoppingDay === 'today' ? notes.shoppingToday : notes.shoppingTomorrow;
   const activeNotes = selected === 'shopping' ? shoppingItems : notes[selected];
@@ -30,10 +35,26 @@ export default function NotesScreen() {
   const pendingNotes = useMemo(() => activeNotes.filter((item) => !item.done), [activeNotes]);
   const completedNotes = useMemo(() => activeNotes.filter((item) => item.done), [activeNotes]);
 
+  const openComposer = () => {
+    setComposerCategory(selected === 'shopping' ? 'general' : selected);
+    setNoteSubject('');
+    setNoteBody('');
+    setComposerVisible(true);
+  };
+
+  const closeComposer = () => {
+    setComposerVisible(false);
+    setNoteSubject('');
+    setNoteBody('');
+  };
+
   const submit = () => {
-    if (!draft.trim()) return;
-    addNote(selected, draft);
-    setDraft('');
+    const subject = noteSubject.trim();
+    const body = noteBody.trim();
+    const text = [subject, body].filter(Boolean).join('\n');
+    if (!text) return;
+    addNote(composerCategory, text);
+    closeComposer();
   };
 
   const submitShopping = () => {
@@ -57,7 +78,19 @@ export default function NotesScreen() {
   };
 
   return (
-    <Screen>
+      <Screen
+        floatingAction={selected !== 'shopping' ? (
+          <Pressable
+            testID="add-note-fab"
+            accessibilityRole="button"
+            accessibilityLabel={`Tulis ${option.label.toLowerCase()} baru`}
+            onPress={openComposer}
+            style={({ pressed }) => [s.fab, { backgroundColor: c.primary, opacity: pressed ? 0.78 : 1 }]}
+          >
+            <Ionicons name="add" size={29} color={c.primaryForeground} />
+          </Pressable>
+        ) : null}
+      >
       <PageHeader
         eyebrow="Ruang catatan"
         title="Catatan"
@@ -111,7 +144,10 @@ export default function NotesScreen() {
       <>
       <View style={s.sectionHeading}>
         <View style={s.sectionCopy}>
-          <Text style={[s.sectionTitle, { color: c.foreground }]}>{option.label}</Text>
+          <View style={s.sectionTitleRow}>
+            <Ionicons name="mail-open-outline" size={18} color={c.primary} />
+            <Text style={[s.sectionTitle, { color: c.foreground }]}>{option.label}</Text>
+          </View>
           <Text style={[s.sectionHelper, { color: c.mutedForeground }]}>{option.helper}</Text>
         </View>
         {completedCount > 0 ? (
@@ -126,30 +162,6 @@ export default function NotesScreen() {
         ) : null}
       </View>
 
-      <View style={[s.composer, { backgroundColor: c.card, borderColor: c.border }]}>
-        <TextInput
-          testID="note-input"
-          value={draft}
-          onChangeText={setDraft}
-          onSubmitEditing={submit}
-          placeholder={selected === 'carry' ? 'Contoh: bawa nota titipan' : 'Tulis catatan baru'}
-          placeholderTextColor={c.mutedForeground}
-          returnKeyType="done"
-          style={[s.input, { color: c.foreground }]}
-          accessibilityLabel={`Tambah ${option.label.toLowerCase()}`}
-        />
-        <Pressable
-          testID="add-note"
-          accessibilityRole="button"
-          accessibilityLabel={`Tambah ke ${option.label}`}
-          onPress={submit}
-          disabled={!draft.trim()}
-          style={({ pressed }) => [s.addButton, { backgroundColor: draft.trim() ? c.primary : c.muted, opacity: pressed ? 0.72 : 1 }]}
-        >
-          <Ionicons name="arrow-up" size={19} color={draft.trim() ? c.primaryForeground : c.mutedForeground} />
-        </Pressable>
-      </View>
-
       {pendingNotes.length ? (
         <View style={s.noteList}>
           {pendingNotes.map((item) => (
@@ -160,7 +172,7 @@ export default function NotesScreen() {
         <EmptyState
           icon={option.icon}
           title={selected === 'carry' ? 'Belum ada barang bawaan' : 'Belum ada catatan'}
-          body="Tambahkan catatan di kolom atas supaya tidak terlewat."
+          body="Tekan tombol tambah di kanan bawah untuk menulis catatan."
         />
       )}
 
@@ -174,7 +186,134 @@ export default function NotesScreen() {
       ) : null}
       </>
       )}
+      <NoteComposerModal
+        visible={composerVisible}
+        category={composerCategory}
+        subject={noteSubject}
+        body={noteBody}
+        onCategoryChange={setComposerCategory}
+        onSubjectChange={setNoteSubject}
+        onBodyChange={setNoteBody}
+        onClose={closeComposer}
+        onSubmit={submit}
+      />
     </Screen>
+  );
+}
+
+function NoteComposerModal({
+  visible,
+  category,
+  subject,
+  body,
+  onCategoryChange,
+  onSubjectChange,
+  onBodyChange,
+  onClose,
+  onSubmit,
+}: {
+  visible: boolean;
+  category: NoteCategory;
+  subject: string;
+  body: string;
+  onCategoryChange: (category: NoteCategory) => void;
+  onSubjectChange: (value: string) => void;
+  onBodyChange: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const c = useColors();
+  const insets = useSafeAreaInsets();
+  const canSubmit = Boolean(subject.trim() || body.trim());
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View testID="note-compose-modal" style={[s.composeRoot, { backgroundColor: c.background }]}>
+        <KeyboardAwareScrollViewCompat
+          contentContainerStyle={[s.composeContent, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 24 }]}
+          keyboardShouldPersistTaps="handled"
+          bottomOffset={20}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={s.composeHeader}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Tutup penulisan catatan" onPress={onClose} hitSlop={8} style={s.composeIconButton}>
+              <Ionicons name="close" size={25} color={c.foreground} />
+            </Pressable>
+            <View style={s.composeHeaderCopy}>
+              <Text style={[s.composeKicker, { color: c.primary }]}>CATATAN BARU</Text>
+              <Text style={[s.composeTitle, { color: c.foreground }]}>Tulis catatan</Text>
+            </View>
+            <Pressable
+              testID="save-note"
+              accessibilityRole="button"
+              accessibilityLabel="Simpan catatan"
+              onPress={onSubmit}
+              disabled={!canSubmit}
+              style={({ pressed }) => [s.composeSendButton, { backgroundColor: canSubmit ? c.primary : c.muted, opacity: pressed ? 0.72 : 1 }]}
+            >
+              <Ionicons name="send" size={17} color={canSubmit ? c.primaryForeground : c.mutedForeground} />
+              <Text style={[s.composeSendText, { color: canSubmit ? c.primaryForeground : c.mutedForeground }]}>Simpan</Text>
+            </Pressable>
+          </View>
+
+          <Surface style={s.composeCard}>
+            <View style={s.composeMetaRow}>
+              <View style={[s.composeAvatar, { backgroundColor: c.secondary }]}>
+                <Ionicons name="create-outline" size={19} color={c.primary} />
+              </View>
+              <View style={s.composeMetaCopy}>
+                <Text style={[s.composeMetaLabel, { color: c.mutedForeground }]}>Simpan di</Text>
+                <Text style={[s.composeMetaValue, { color: c.foreground }]}>{category === 'general' ? 'Catatan biasa' : 'Perlu dibawa'}</Text>
+              </View>
+            </View>
+            <View style={[s.categoryPicker, { borderTopColor: c.border }]}>
+              {(['general', 'carry'] as NoteCategory[]).map((item) => {
+                const active = category === item;
+                return (
+                  <Pressable
+                    key={item}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => onCategoryChange(item)}
+                    style={({ pressed }) => [s.categoryChip, { backgroundColor: active ? c.primary : c.secondary, opacity: pressed ? 0.72 : 1 }]}
+                  >
+                    <Ionicons name={item === 'general' ? 'create-outline' : 'bag-handle-outline'} size={14} color={active ? c.primaryForeground : c.secondaryForeground} />
+                    <Text style={[s.categoryChipText, { color: active ? c.primaryForeground : c.secondaryForeground }]}>{item === 'general' ? 'Catatan biasa' : 'Perlu dibawa'}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={[s.composeField, { borderTopColor: c.border }]}>
+              <TextInput
+                testID="note-subject-input"
+                value={subject}
+                onChangeText={onSubjectChange}
+                placeholder="Judul catatan"
+                placeholderTextColor={c.mutedForeground}
+                returnKeyType="next"
+                style={[s.subjectInput, { color: c.foreground }]}
+                accessibilityLabel="Judul catatan"
+              />
+            </View>
+            <View style={[s.composeBodyField, { borderTopColor: c.border }]}>
+              <TextInput
+                testID="note-body-input"
+                value={body}
+                onChangeText={onBodyChange}
+                placeholder="Tulis isi catatan di sini..."
+                placeholderTextColor={c.mutedForeground}
+                multiline
+                textAlignVertical="top"
+                style={[s.bodyInput, { color: c.foreground }]}
+                accessibilityLabel="Isi catatan"
+              />
+            </View>
+          </Surface>
+          <Text style={[s.composeHint, { color: c.mutedForeground }]}>
+            Catatan akan muncul seperti pesan terbaru di daftar {category === 'general' ? 'catatan biasa' : 'perlu dibawa'}.
+          </Text>
+        </KeyboardAwareScrollViewCompat>
+      </View>
+    </Modal>
   );
 }
 
@@ -417,24 +556,34 @@ function NoteRow({
   onToggle,
   onDelete,
 }: {
-  item: { id: string; text: string; done: boolean };
+  item: Pick<NoteItem, 'id' | 'text' | 'done' | 'createdAt'>;
   category: NoteCategory;
   onToggle: (category: NoteCategory, id: string) => void;
   onDelete: (category: NoteCategory, id: string) => void;
 }) {
   const c = useColors();
+  const [subject, ...bodyLines] = item.text.split('\n');
+  const preview = bodyLines.join(' ').trim() || 'Tidak ada isi tambahan';
+  const createdAt = new Date(item.createdAt);
+  const timeLabel = Number.isNaN(createdAt.getTime())
+    ? ''
+    : createdAt.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
   return (
-    <Surface style={s.noteRow}>
+    <Surface style={[s.noteRow, item.done ? s.noteRowDone : null]}>
       <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked: item.done }}
         accessibilityLabel={item.done ? `Tandai ${item.text} belum selesai` : `Tandai ${item.text} selesai`}
         onPress={() => onToggle(category, item.id)}
-        style={({ pressed }) => [s.checkButton, { backgroundColor: item.done ? c.primary : c.secondary, opacity: pressed ? 0.72 : 1 }]}
+        style={({ pressed }) => [s.checkButton, { backgroundColor: item.done ? c.primary : c.secondary, borderColor: item.done ? c.primary : c.border, opacity: pressed ? 0.72 : 1 }]}
       >
         {item.done ? <Ionicons name="checkmark" size={16} color={c.primaryForeground} /> : null}
       </Pressable>
-      <Text style={[s.noteText, { color: item.done ? c.mutedForeground : c.foreground, textDecorationLine: item.done ? 'line-through' : 'none' }]}>{item.text}</Text>
+      <View style={s.noteCopy}>
+        <Text numberOfLines={1} style={[s.noteSubject, { color: item.done ? c.mutedForeground : c.foreground, textDecorationLine: item.done ? 'line-through' : 'none' }]}>{subject || 'Tanpa judul'}</Text>
+        <Text numberOfLines={1} style={[s.notePreview, { color: c.mutedForeground }]}>{preview}</Text>
+      </View>
+      <Text style={[s.noteDate, { color: item.done ? c.mutedForeground : c.primary }]}>{timeLabel}</Text>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`Hapus ${item.text}`}
@@ -497,15 +646,41 @@ const s = StyleSheet.create({
   itemPriceInput: { flex: 1, minWidth: 56, padding: 0, fontSize: 11, fontWeight: '800' },
   stepper: { height: 30, borderRadius: 9, paddingHorizontal: 7, flexDirection: 'row', alignItems: 'center', gap: 8 },
   stepperValue: { minWidth: 17, textAlign: 'center', fontSize: 11, fontWeight: '800' },
-  composer: { minHeight: 54, borderWidth: 1, borderRadius: 16, paddingLeft: 14, paddingRight: 7, flexDirection: 'row', alignItems: 'center', marginBottom: 13 },
-  input: { flex: 1, minHeight: 48, fontSize: 13 },
-  addButton: { width: 38, height: 38, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   noteList: { gap: 9 },
-  noteRow: { minHeight: 62, padding: 11, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  checkButton: { width: 25, height: 25, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  noteText: { flex: 1, fontSize: 13, lineHeight: 19, fontWeight: '600' },
+  noteRow: { minHeight: 72, paddingVertical: 11, paddingLeft: 11, paddingRight: 7, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  noteRowDone: { opacity: 0.8 },
+  checkButton: { width: 27, height: 27, borderRadius: 14, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  noteCopy: { flex: 1, minWidth: 0 },
+  noteSubject: { fontSize: 13, lineHeight: 18, fontWeight: '800' },
+  notePreview: { fontSize: 11, lineHeight: 17, marginTop: 2 },
+  noteDate: { alignSelf: 'flex-start', fontSize: 10, fontWeight: '800', marginTop: 2 },
   deleteButton: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
   completedSection: { marginTop: 24, gap: 9 },
   completedHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   completedLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 1 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  fab: { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', boxShadow: '0px 6px 14px rgba(10, 10, 10, 0.18)', elevation: 5 },
+  composeRoot: { flex: 1 },
+  composeContent: { paddingHorizontal: 16 },
+  composeHeader: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 16 },
+  composeIconButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  composeHeaderCopy: { flex: 1 },
+  composeKicker: { fontSize: 9, fontWeight: '800', letterSpacing: 1.4 },
+  composeTitle: { fontSize: 22, fontWeight: '800', marginTop: 2 },
+  composeSendButton: { minHeight: 39, borderRadius: 13, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  composeSendText: { fontSize: 11, fontWeight: '800' },
+  composeCard: { padding: 0, overflow: 'hidden' },
+  composeMetaRow: { flexDirection: 'row', alignItems: 'center', padding: 15 },
+  composeAvatar: { width: 39, height: 39, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  composeMetaCopy: { marginLeft: 10 },
+  composeMetaLabel: { fontSize: 10, fontWeight: '700' },
+  composeMetaValue: { fontSize: 13, fontWeight: '800', marginTop: 2 },
+  categoryPicker: { borderTopWidth: 1, padding: 11, flexDirection: 'row', gap: 7 },
+  categoryChip: { minHeight: 32, borderRadius: 10, paddingHorizontal: 9, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  categoryChipText: { fontSize: 10, fontWeight: '800' },
+  composeField: { borderTopWidth: 1, paddingHorizontal: 15 },
+  subjectInput: { minHeight: 51, fontSize: 15, fontWeight: '800' },
+  composeBodyField: { borderTopWidth: 1, paddingHorizontal: 15, paddingTop: 13 },
+  bodyInput: { minHeight: 220, fontSize: 14, lineHeight: 21 },
+  composeHint: { fontSize: 11, lineHeight: 17, marginTop: 12, paddingHorizontal: 4 },
 });

@@ -10,7 +10,7 @@ import { useTheme } from '@/context/ThemeContext';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
-export function Screen({ children, scroll = true, footer, footerBorder = true, footerBottomInset = true, contentBottomInset = true }: { children: ReactNode; scroll?: boolean; footer?: ReactNode; footerBorder?: boolean; footerBottomInset?: boolean; contentBottomInset?: boolean }) {
+export function Screen({ children, scroll = true, footer, footerBorder = true, footerBottomInset = true, contentBottomInset = true, floatingAction }: { children: ReactNode; scroll?: boolean; footer?: ReactNode; footerBorder?: boolean; footerBottomInset?: boolean; contentBottomInset?: boolean; floatingAction?: ReactNode }) {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const webTopInset = Platform.OS === 'web' ? 67 : 0;
@@ -24,6 +24,7 @@ export function Screen({ children, scroll = true, footer, footerBorder = true, f
     <View style={[ui.root, { backgroundColor: c.background }]}>
       {scroll ? <KeyboardAwareScrollViewCompat style={ui.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" bottomOffset={24}>{content}</KeyboardAwareScrollViewCompat> : content}
       {footer ? <View style={[ui.fixedFooter, { paddingBottom: footerBottomInset ? tabBarHeight + 10 : insets.bottom + 10, backgroundColor: c.background, borderTopColor: c.border, borderTopWidth: footerBorder ? 1 : 0 }]}>{footer}</View> : null}
+      {floatingAction ? <View pointerEvents="box-none" style={[ui.floatingAction, { bottom: tabBarHeight + 16 }]}>{floatingAction}</View> : null}
     </View>
   );
 }
@@ -180,6 +181,7 @@ export const ui = StyleSheet.create({
   root: { flex: 1 },
   scroll: { flex: 1 },
   fixedFooter: { flexShrink: 0, paddingHorizontal: 16, paddingTop: 10, borderTopWidth: 1 },
+  floatingAction: { position: 'absolute', right: 18, alignItems: 'center' },
   content: { paddingHorizontal: 16, maxWidth: 560, width: '100%', alignSelf: 'center' },
   header: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginHorizontal: -16, marginBottom: 22, paddingHorizontal: 16, paddingBottom: 22, borderBottomWidth: 1, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
   headerLeading: { flex: 1, flexDirection: 'row', alignItems: 'flex-start' },
