@@ -4,7 +4,9 @@ import { buildCatalogItems } from './menuCatalog';
 import { createMenuDragHandlers, type ActiveMenuDrag } from './menuDrag';
 import {
   hydrateWarungState,
+  isRestorableWarungState,
   persistWarungState,
+  persistWarungStateSafely,
   reorderMenuItems,
   WARUNG_STATE_STORAGE_KEY,
 } from './menuOrdering';
@@ -80,6 +82,34 @@ describe('menu order persistence', () => {
     expect(restoredState.menus.map((menu) => menu.id)).toEqual(['bakso', 'es-teh', 'mie']);
     expect(dapurCatalog.map((menu) => menu.id)).toEqual(['bakso', 'es-teh', 'mie']);
     expect(dapurCatalog.map((menu) => menu.name)).toEqual(['Bakso', 'Es Teh', 'Mie Ayam']);
+  });
+
+  it('accepts a legacy restore payload with optional fields omitted', () => {
+    expect(isRestorableWarungState({
+      menus: [],
+      expenses: [{ id: 'legacy-expense', title: 'Belanja lama', amount: 10_000, date: '2026-09-10' }],
+      sales: [],
+    })).toBe(true);
+    expect(isRestorableWarungState({})).toBe(false);
+    expect(isRestorableWarungState({ menus: 'corrupt' })).toBe(false);
+    expect(isRestorableWarungState({ menus: [], qrisImageUri: 123 })).toBe(false);
+  });
+
+  it('restores the previous state when writing the new state fails', async () => {
+    const previousState = stateWithMenus(menus);
+    const nextState = { ...previousState, menus: [menus[2]] };
+    const storage = new Map<string, string>();
+    let attempts = 0;
+    const setItem = async (key: string, value: string) => {
+      attempts += 1;
+      storage.set(key, value);
+      if (attempts === 1) throw new Error('storage unavailable');
+    };
+
+    await expect(persistWarungStateSafely(previousState, nextState, setItem))
+      .rejects.toThrow('storage unavailable');
+    expect(JSON.parse(storage.get(WARUNG_STATE_STORAGE_KEY) ?? '{}').menus)
+      .toEqual(previousState.menus);
   });
 });
 

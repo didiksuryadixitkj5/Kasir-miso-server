@@ -6,7 +6,9 @@ import { addShoppingExpense as addShoppingExpenseToState } from '@/domain/shoppi
 import {
   createDefaultWarungState,
   hydrateWarungState,
+  isRestorableWarungState,
   persistWarungState,
+  persistWarungStateSafely,
   reorderMenuItems,
   WARUNG_STATE_STORAGE_KEY,
 } from '@/domain/menuOrdering';
@@ -164,8 +166,11 @@ export function WarungProvider({ children }: { children: ReactNode }) {
     ...state,
     hydrated,
     restoreState: async nextState => {
+      if (!isRestorableWarungState(nextState)) {
+        throw new Error('Data backup tidak memiliki bentuk state Kasir Miso yang valid.');
+      }
       const restored = await hydrateWarungState(JSON.stringify(nextState), persistImageUri);
-      await persistWarungState(restored, AsyncStorage.setItem);
+      await persistWarungStateSafely(state, restored, AsyncStorage.setItem);
       setState(restored);
     },
     addMenu: (name, price, recipe = {}, category = 'Lainnya', imageUri) => setState(s => ({ ...s, menus: [...s.menus, { id: makeId(), name, price, recipe, category, imageUri }] })),

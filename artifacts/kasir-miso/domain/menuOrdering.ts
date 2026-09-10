@@ -31,9 +31,48 @@ export function reorderMenuItems(menus: MenuItem[], id: string, toIndex: number)
 
 type PersistImageUri = (uri?: string) => Promise<string | undefined>;
 type SetStorageItem = (key: string, value: string) => Promise<void>;
+const restoreArrayFields = [
+  'menus',
+  'activeOrders',
+  'kitchenOrders',
+  'inventory',
+  'consignments',
+  'expenses',
+  'sales',
+  'savingsRules',
+  'savingsEntries',
+] as const;
 
 export function persistWarungState(state: WarungState, setItem: SetStorageItem) {
   return setItem(WARUNG_STATE_STORAGE_KEY, JSON.stringify(state));
+}
+
+export function isRestorableWarungState(value: unknown): value is Partial<WarungState> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  const hasStateData = restoreArrayFields.some((field) => field in candidate);
+  if (!hasStateData) return false;
+  if (restoreArrayFields.some((field) => field in candidate && !Array.isArray(candidate[field]))) return false;
+  return !('qrisImageUri' in candidate)
+    || candidate.qrisImageUri === null
+    || typeof candidate.qrisImageUri === 'string';
+}
+
+export async function persistWarungStateSafely(
+  previousState: WarungState,
+  nextState: WarungState,
+  setItem: SetStorageItem,
+) {
+  try {
+    await persistWarungState(nextState, setItem);
+  } catch (error) {
+    try {
+      await persistWarungState(previousState, setItem);
+    } catch {
+      // Keep the original write error. The storage adapter may be unavailable.
+    }
+    throw error;
+  }
 }
 
 export async function hydrateWarungState(raw: string | null, persistImageUri: PersistImageUri): Promise<WarungState> {

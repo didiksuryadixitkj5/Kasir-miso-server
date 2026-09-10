@@ -49,6 +49,43 @@ describe('backup envelope', () => {
     expect(parseOfflineBackup(JSON.stringify(backup))).toEqual(backup);
   });
 
+  it('keeps transactions, QRIS, and legacy expenses through offline restore', async () => {
+    const sale = {
+      id: 'sale-1',
+      amount: 25_000,
+      method: 'QRIS' as const,
+      items: [{ menu: 'mie', qty: 2 }],
+      date: '2026-09-10',
+    };
+    const legacyExpense = {
+      id: 'expense-legacy',
+      title: 'Belanja lama',
+      amount: 10_000,
+      date: '2026-09-09',
+    };
+    const backup = createOfflineBackup({
+      menus: [],
+      activeOrders: [],
+      kitchenOrders: [],
+      inventory: [],
+      consignments: [],
+      expenses: [legacyExpense],
+      sales: [sale],
+      savingsRules: [],
+      savingsEntries: [],
+      qrisImageUri: 'data:image/png;base64,stored-qris',
+    });
+    const parsed = parseOfflineBackup(JSON.stringify(backup));
+    const restoredState = await hydrateWarungState(
+      JSON.stringify(parsed.data),
+      async (uri) => uri,
+    );
+
+    expect(restoredState.sales).toEqual([sale]);
+    expect(restoredState.expenses).toEqual([legacyExpense]);
+    expect(restoredState.qrisImageUri).toBe('data:image/png;base64,stored-qris');
+  });
+
   it('rejects an invalid offline file before it can be restored', () => {
     expect(() => parseOfflineBackup('{not-json')).toThrow('bukan JSON yang valid');
     expect(() => parseOfflineBackup(JSON.stringify({
