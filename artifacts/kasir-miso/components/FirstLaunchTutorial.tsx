@@ -4,7 +4,11 @@ import { useRouter, type Href } from 'expo-router';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
-import { completeFirstLaunchTutorial, hasCompletedFirstLaunchTutorial } from '@/utils/firstLaunchTutorial';
+import {
+  completeFirstLaunchTutorial,
+  hasCompletedFirstLaunchTutorial,
+  isFirstLaunchTutorialPreviewEnabled,
+} from '@/utils/firstLaunchTutorial';
 
 type TutorialStep = {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -75,7 +79,7 @@ export function FirstLaunchTutorial() {
     hasCompletedFirstLaunchTutorial()
       .then((completed) => {
         if (!active) return;
-        setVisible(!completed);
+        setVisible(isFirstLaunchTutorialPreviewEnabled() || !completed);
         setChecked(true);
       })
       .catch(() => {
