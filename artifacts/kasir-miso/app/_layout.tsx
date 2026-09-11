@@ -22,6 +22,7 @@ import { GoogleAccountProvider } from '@/context/GoogleAccountContext';
 import { OnlineBackupProvider } from '@/context/OnlineBackupContext';
 import { getApiBaseUrl } from '@/config/runtime';
 import { setBaseUrl } from '@workspace/api-client-react';
+import { FirstLaunchTutorial } from '@/components/FirstLaunchTutorial';
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -43,17 +44,20 @@ if (Platform.OS !== 'web') {
 
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerBackTitle: 'Back' }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="business-card" options={{ headerShown: false }} />
-      <Stack.Screen name="business-profile" options={{ headerShown: false }} />
-      <Stack.Screen name="staff" options={{ headerShown: false }} />
-      <Stack.Screen name="reminders" options={{ headerShown: false }} />
-      <Stack.Screen name="settings" options={{ headerShown: false }} />
-      <Stack.Screen name="stock-edit" options={{ headerShown: false }} />
-      <Stack.Screen name="cash-flow" options={{ headerShown: false }} />
-      <Stack.Screen name="oauthredirect" options={{ headerShown: false }} />
-    </Stack>
+    <>
+      <Stack screenOptions={{ headerBackTitle: 'Back' }}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="business-card" options={{ headerShown: false }} />
+        <Stack.Screen name="business-profile" options={{ headerShown: false }} />
+        <Stack.Screen name="staff" options={{ headerShown: false }} />
+        <Stack.Screen name="reminders" options={{ headerShown: false }} />
+        <Stack.Screen name="settings" options={{ headerShown: false }} />
+        <Stack.Screen name="stock-edit" options={{ headerShown: false }} />
+        <Stack.Screen name="cash-flow" options={{ headerShown: false }} />
+        <Stack.Screen name="oauthredirect" options={{ headerShown: false }} />
+      </Stack>
+      <FirstLaunchTutorial />
+    </>
   );
 }
 
