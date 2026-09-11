@@ -87,45 +87,36 @@ export async function uploadGoogleDriveBackup(
   input: GoogleDriveUpload,
   options?: GoogleRequestOptions,
 ): Promise<GoogleDriveUploadResult> {
-  // Keep a wide margin below the public proxy request limit. The proxy can
-  // reject requests before they reach Express, even though Express accepts
-  // much larger JSON bodies.
-  const chunkSize = 64 * 1024;
-  if (input.content.length > chunkSize) {
-    const uploadId = `backup-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const totalChunks = Math.ceil(input.content.length / chunkSize);
-    let finalResult: GoogleDriveUploadResult | null = null;
+  // Always use the chunk endpoint. The public proxy can reject a complete
+  // backup before it reaches Express, including backups that are small enough
+  // for Express's larger JSON limit.
+  const chunkSize = 48 * 1024;
+  const uploadId = `backup-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const totalChunks = Math.max(1, Math.ceil(input.content.length / chunkSize));
+  let finalResult: GoogleDriveUploadResult | null = null;
 
-    for (let index = 0; index < totalChunks; index += 1) {
-      const headers = new Headers(options?.headers);
-      headers.set("X-Backup-Upload-ID", uploadId);
-      headers.set("X-Backup-Chunk-Index", String(index));
-      headers.set("X-Backup-Chunk-Total", String(totalChunks));
+  for (let index = 0; index < totalChunks; index += 1) {
+    const headers = new Headers(options?.headers);
+    headers.set("X-Backup-Upload-ID", uploadId);
+    headers.set("X-Backup-Chunk-Index", String(index));
+    headers.set("X-Backup-Chunk-Total", String(totalChunks));
 
-      const result = await customFetch<GoogleDriveUploadResult | { complete: false }>(
-        "/api/google/backup/chunk",
-        {
-          ...options,
-          method: "PUT",
-          headers,
-          body: JSON.stringify({
-            content: input.content.slice(index * chunkSize, (index + 1) * chunkSize),
-            expectedModifiedTime: input.expectedModifiedTime,
-          }),
-          responseType: "json",
-        },
-      );
-      if ("modifiedTime" in result) finalResult = result;
-    }
-
-    if (finalResult) return finalResult;
-    throw new Error("Backup Google Drive belum selesai diproses.");
+    const result = await customFetch<GoogleDriveUploadResult | { complete: false }>(
+      "/api/google/backup/chunk",
+      {
+        ...options,
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          content: input.content.slice(index * chunkSize, (index + 1) * chunkSize),
+          expectedModifiedTime: input.expectedModifiedTime,
+        }),
+        responseType: "json",
+      },
+    );
+    if ("modifiedTime" in result) finalResult = result;
   }
 
-  return customFetch<GoogleDriveUploadResult>("/api/google/backup", {
-    ...options,
-    method: "PUT",
-    body: JSON.stringify(input),
-    responseType: "json",
-  });
+  if (finalResult) return finalResult;
+  throw new Error("Backup Google Drive belum selesai diproses.");
 }
