@@ -78,7 +78,7 @@ export default function HistoryScreen() {
                 <View style={s.flex}>
                   <Text style={[s.date, { color: c.foreground }]}>{formatHistoryDate(sale.date)}</Text>
                   <Text style={[s.meta, { color: c.mutedForeground }]}>
-                    {sale.paidAt ? `Dibayar ${sale.paidAt}` : 'Pembayaran diterima'}
+                    {sale.receiptNumber ? `${sale.receiptNumber} · ` : ''}{sale.paidAt ? `Dibayar ${sale.paidAt}` : 'Pembayaran diterima'}
                   </Text>
                 </View>
               </View>

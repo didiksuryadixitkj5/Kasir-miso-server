@@ -41,6 +41,7 @@ export interface ActiveOrder {
 }
 export interface Sale {
   id: string;
+  receiptNumber?: string;
   amount: number;
   method: PaymentMethod;
   items: OrderItem[];
@@ -125,7 +126,7 @@ interface ContextValue extends WarungState {
   addItems: (id: string, items: OrderItem[], note: string) => void;
   completeKitchen: (id: string) => void;
   mergeOrders: (targetId: string, sourceId: string) => void;
-  payOrder: (id: string, amount: number, method: PaymentMethod) => void;
+  payOrder: (id: string, amount: number, method: PaymentMethod, receiptNumber?: string) => void;
   consumeItems: (items: OrderItem[]) => void;
   restoreItems: (items: OrderItem[]) => void;
   addStock: (id: string, qty: number) => void;
@@ -281,7 +282,7 @@ export function WarungProvider({ children }: { children: ReactNode }) {
          kitchenOrders: mergedKitchenOrder ? [...remainingKitchenOrders, mergedKitchenOrder] : remainingKitchenOrders,
       };
     }),
-      payOrder: (id, amount, method) => setState(s => {
+      payOrder: (id, amount, method, receiptNumber) => setState(s => {
         const order = s.activeOrders.find(o => o.id === id);
         return order?.cooked ? {
           ...s,
@@ -291,6 +292,7 @@ export function WarungProvider({ children }: { children: ReactNode }) {
             ...s.sales,
             {
               id: makeId(),
+              receiptNumber,
               amount,
               method,
                items: getOrderItems(order),

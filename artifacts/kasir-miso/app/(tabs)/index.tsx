@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { themeOptions } from '@/constants/colors';
-import { consignmentKey, formatRp, getOrderItems, orderTotal, useWarung } from '@/context/WarungContext';
+import { consignmentKey, formatRp, getOrderItems, localDate, orderTotal, useWarung } from '@/context/WarungContext';
 import { useColors } from '@/hooks/useColors';
 import { useTheme } from '@/context/ThemeContext';
 import { useRouter } from 'expo-router';
@@ -12,6 +12,17 @@ import { Badge, EmptyState, IconButton, PageHeader, PrimaryButton, Screen, Secti
 import { OrderComposer } from '@/components/OrderComposer';
 import { persistImageAsset } from '@/utils/persistentImage';
 import { ActiveOrder } from '@/context/WarungContext';
+
+type Receipt = {
+  receiptNumber: string;
+  items: ActiveOrder['items'];
+  total: number;
+  method: 'Tunai' | 'QRIS';
+  received: number;
+  change: number;
+  paidAt: string;
+  tables: number[];
+};
 
 export default function CashierScreen() {
   const c = useColors();
@@ -28,6 +39,7 @@ export default function CashierScreen() {
   const [themePickerVisible, setThemePickerVisible] = useState(false);
   const [assigningTableTo, setAssigningTableTo] = useState<string | null>(null);
   const [addingTo, setAddingTo] = useState<ActiveOrder | null>(null);
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
   const active = activeOrders.find((order) => order.id === paying);
   const catalogItems = [
     ...menus.map((menu) => ({ ...menu, category: menu.category || 'Lainnya' })),
@@ -52,6 +64,62 @@ export default function CashierScreen() {
   };
 
   const haptic = () => { Haptics.selectionAsync().catch(() => undefined); };
+  const completePayment = (method: Receipt['method']) => {
+    if (!active) return;
+    const total = orderTotal(active, menus, consignments);
+    const received = method === 'QRIS' ? total : receivedCash;
+    const receiptNumber = `TRX-${localDate().replace(/-/g, '')}-${Date.now().toString().slice(-6)}`;
+    const paidAt = new Date().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+    payOrder(active.id, total, method, receiptNumber);
+    setReceipt({
+      receiptNumber,
+      items: getOrderItems(active),
+      total,
+      method,
+      received,
+      change: Math.max(0, received - total),
+      paidAt,
+      tables: active.tables,
+    });
+    setQr(false);
+    setPaying(null);
+  };
+  const receiptText = receipt
+    ? [
+        'KASIR MISO',
+        'Bukti pembayaran',
+        `Nomor transaksi: ${receipt.receiptNumber}`,
+        `Waktu: ${receipt.paidAt}`,
+        receipt.tables.length ? `Meja: ${receipt.tables.map((table) => `M${table}`).join(' + ')}` : '',
+        '',
+        ...receipt.items.map((item) => {
+          const catalogItem = catalogItems.find((entry) => entry.id === item.menu);
+          const name = item.displayName ?? catalogItem?.name ?? 'Item dihapus';
+          const unitPrice = item.unitPrice ?? catalogItem?.price ?? 0;
+          return `${item.qty}x ${name} — ${formatRp(unitPrice * item.qty)}`;
+        }),
+        '',
+        `TOTAL: ${formatRp(receipt.total)}`,
+        `Metode: ${receipt.method}`,
+        receipt.method === 'Tunai' ? `Diterima: ${formatRp(receipt.received)}` : '',
+        receipt.method === 'Tunai' ? `Kembalian: ${formatRp(receipt.change)}` : '',
+        '',
+        'Terima kasih sudah berbelanja.',
+      ].filter(Boolean).join('\n')
+    : '';
+  const shareReceipt = async () => {
+    if (!receiptText) return;
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(receiptText);
+        Alert.alert('Struk disalin', 'Bukti pembayaran sudah disalin ke clipboard.');
+        return;
+      }
+      await Share.share({ message: receiptText, title: `Struk ${receipt?.receiptNumber ?? ''}` });
+    } catch {
+      Alert.alert('Struk belum terbagi', 'Coba tekan tombol bagikan lagi.');
+    }
+  };
   const toggleTable = (number: number) => { haptic(); setTables((current) => current.includes(number) ? current.filter((item) => item !== number) : [...current, number]); };
   const confirmCancel = (id: string, tablesForOrder: number[]) => {
     const tableLabel = tablesForOrder.length
@@ -286,7 +354,7 @@ export default function CashierScreen() {
               <View><Text style={[s.summaryLabel, { color: c.mutedForeground }]}>UANG DITERIMA</Text><Text style={[s.summaryValue, { color: c.foreground }]}>{formatRp(receivedCash)}</Text></View>
               <View style={s.summaryRight}><Text style={[s.summaryLabel, { color: c.mutedForeground }]}>KEMBALIAN</Text><Text style={[s.summaryValue, { color: receivedCash >= (active ? orderTotal(active, menus, consignments) : 0) ? c.primary : c.destructive }]}>{formatRp(Math.max(0, receivedCash - (active ? orderTotal(active, menus, consignments) : 0)))}</Text></View>
            </View>
-            <PrimaryButton disabled={!active || receivedCash < orderTotal(active, menus, consignments)} onPress={() => { if (active) payOrder(active.id, orderTotal(active, menus, consignments), 'Tunai'); setPaying(null); }} icon="checkmark-circle-outline">Konfirmasi tunai</PrimaryButton>
+             <PrimaryButton testID="confirm-cash-payment" disabled={!active || receivedCash < orderTotal(active, menus, consignments)} onPress={() => completePayment('Tunai')} icon="checkmark-circle-outline">Konfirmasi tunai</PrimaryButton>
         </View></View>
       </Modal>
        <Modal visible={!!assigningTableTo} transparent animationType="fade" onRequestClose={() => setAssigningTableTo(null)}>
@@ -300,8 +368,55 @@ export default function CashierScreen() {
          </View>
        </Modal>
        <Modal visible={qr} transparent animationType="fade" onRequestClose={() => setQr(false)}>
-         <View style={[s.modalBackdrop, { backgroundColor: c.foreground + 'B8', justifyContent: 'center' }]}><View style={[s.qrModal, { backgroundColor: c.card }]}><Pressable accessibilityLabel="Kembali ke pembayaran tunai" onPress={() => setQr(false)} style={({ pressed }) => [s.backToCash, { opacity: pressed ? 0.65 : 1 }]}><Ionicons name="arrow-back" size={17} color={c.primary} /><Text style={[s.outlineText, { color: c.primary }]}>Kembali ke tunai</Text></Pressable><Text style={[s.modalKicker, { color: c.primary }]}>PEMBAYARAN DIGITAL</Text><Text style={[s.modalTitle, { color: c.foreground }]}>QRIS Warung</Text><Text style={[s.muted, { color: c.mutedForeground }]}>Scan untuk membayar {active ? formatRp(orderTotal(active, menus, consignments)) : ''}</Text>{qrisImageUri ? <Image source={{ uri: qrisImageUri }} resizeMode="contain" style={s.qrisImage} /> : <View style={[s.qrBox, { backgroundColor: c.card, borderColor: c.border }]}>{Array.from({ length: 49 }, (_, index) => <View key={index} style={[s.qrPixel, { backgroundColor: ((index * 7 + index * index) % 11 < 5) ? c.foreground : c.card }]} />)}</View>}<Pressable onPress={uploadQris} style={({ pressed }) => [s.uploadButton, { borderColor: c.primary, opacity: pressed ? 0.65 : 1 }]}><Ionicons name="cloud-upload-outline" size={17} color={c.primary} /><Text style={[s.outlineText, { color: c.primary }]}>{qrisImageUri ? 'Ganti gambar QRIS' : 'Upload gambar QRIS'}</Text></Pressable><PrimaryButton onPress={() => { if (active) payOrder(active.id, orderTotal(active, menus, consignments), 'QRIS'); setQr(false); setPaying(null); }} icon="checkmark-circle-outline">Pembayaran diterima</PrimaryButton></View></View>
+          <View style={[s.modalBackdrop, { backgroundColor: c.foreground + 'B8', justifyContent: 'center' }]}><View style={[s.qrModal, { backgroundColor: c.card }]}><Pressable accessibilityLabel="Kembali ke pembayaran tunai" onPress={() => setQr(false)} style={({ pressed }) => [s.backToCash, { opacity: pressed ? 0.65 : 1 }]}><Ionicons name="arrow-back" size={17} color={c.primary} /><Text style={[s.outlineText, { color: c.primary }]}>Kembali ke tunai</Text></Pressable><Text style={[s.modalKicker, { color: c.primary }]}>PEMBAYARAN DIGITAL</Text><Text style={[s.modalTitle, { color: c.foreground }]}>QRIS Warung</Text><Text style={[s.muted, { color: c.mutedForeground }]}>Scan untuk membayar {active ? formatRp(orderTotal(active, menus, consignments)) : ''}</Text>{qrisImageUri ? <Image source={{ uri: qrisImageUri }} resizeMode="contain" style={s.qrisImage} /> : <View style={[s.qrBox, { backgroundColor: c.card, borderColor: c.border }]}>{Array.from({ length: 49 }, (_, index) => <View key={index} style={[s.qrPixel, { backgroundColor: ((index * 7 + index * index) % 11 < 5) ? c.foreground : c.card }]} />)}</View>}<Pressable onPress={uploadQris} style={({ pressed }) => [s.uploadButton, { borderColor: c.primary, opacity: pressed ? 0.65 : 1 }]}><Ionicons name="cloud-upload-outline" size={17} color={c.primary} /><Text style={[s.outlineText, { color: c.primary }]}>{qrisImageUri ? 'Ganti gambar QRIS' : 'Upload gambar QRIS'}</Text></Pressable><PrimaryButton testID="confirm-qris-payment" onPress={() => completePayment('QRIS')} icon="checkmark-circle-outline">Pembayaran diterima</PrimaryButton></View></View>
       </Modal>
+       <Modal visible={!!receipt} transparent animationType="slide" onRequestClose={() => setReceipt(null)}>
+         <View style={[s.modalBackdrop, { backgroundColor: c.foreground + 'B8' }]}>
+           <View style={[s.receiptModal, { backgroundColor: c.card }]}>
+             <View style={s.modalTitleRow}>
+               <View>
+                 <Text style={[s.modalKicker, { color: c.primary }]}>PEMBAYARAN BERHASIL</Text>
+                 <Text style={[s.modalTitle, { color: c.foreground }]}>Struk transaksi</Text>
+               </View>
+               <Pressable accessibilityLabel="Tutup struk" onPress={() => setReceipt(null)}>
+                 <Ionicons name="close-circle" size={27} color={c.mutedForeground} />
+               </Pressable>
+             </View>
+             <ScrollView style={s.receiptScroll} showsVerticalScrollIndicator={false}>
+               <View style={[s.receiptSuccess, { backgroundColor: c.secondary }]}>
+                 <Ionicons name="checkmark-circle" size={34} color={c.primary} />
+                 <Text style={[s.receiptSuccessTitle, { color: c.foreground }]}>Transaksi tersimpan</Text>
+                 <Text style={[s.receiptMeta, { color: c.mutedForeground }]}>{receipt?.receiptNumber}</Text>
+               </View>
+               {receipt?.items.map((item, index) => {
+                 const catalogItem = catalogItems.find((entry) => entry.id === item.menu);
+                 const name = item.displayName ?? catalogItem?.name ?? 'Item dihapus';
+                 const unitPrice = item.unitPrice ?? catalogItem?.price ?? 0;
+                 return (
+                   <View key={`${item.menu}-${index}`} style={s.receiptRow}>
+                     <Text style={[s.receiptItemName, { color: c.foreground }]}>{item.qty}x {name}</Text>
+                     <Text style={[s.receiptItemPrice, { color: c.foreground }]}>{formatRp(unitPrice * item.qty)}</Text>
+                   </View>
+                 );
+               })}
+               <View style={[s.receiptTotalRow, { borderTopColor: c.border }]}>
+                 <Text style={[s.receiptTotalLabel, { color: c.foreground }]}>Total</Text>
+                 <Text style={[s.receiptTotalValue, { color: c.primary }]}>{receipt ? formatRp(receipt.total) : ''}</Text>
+               </View>
+               <Text style={[s.receiptDetail, { color: c.mutedForeground }]}>
+                 {receipt?.method}{receipt?.method === 'Tunai' ? ` · Kembalian ${formatRp(receipt.change)}` : ''} · {receipt?.paidAt}
+               </Text>
+             </ScrollView>
+             <View style={s.receiptActions}>
+               <Pressable testID="share-receipt" onPress={shareReceipt} style={({ pressed }) => [s.receiptShareButton, { borderColor: c.primary, opacity: pressed ? 0.7 : 1 }]}>
+                 <Ionicons name="share-social-outline" size={18} color={c.primary} />
+                 <Text style={[s.outlineText, { color: c.primary }]}>Bagikan struk</Text>
+               </Pressable>
+               <PrimaryButton testID="finish-receipt" onPress={() => setReceipt(null)} icon="checkmark-circle-outline">Selesai</PrimaryButton>
+             </View>
+           </View>
+         </View>
+       </Modal>
     </Screen>
   );
 }
@@ -429,6 +544,20 @@ const s = StyleSheet.create({
   summaryLabel: { fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
   summaryValue: { fontSize: 17, fontWeight: '800', marginTop: 3 },
   qrModal: { borderRadius: 26, padding: 24, margin: 25, alignItems: 'center' },
+  receiptModal: { borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, paddingBottom: 28, maxHeight: '84%' },
+  receiptScroll: { flexShrink: 1 },
+  receiptSuccess: { borderRadius: 17, padding: 14, alignItems: 'center', marginBottom: 13 },
+  receiptSuccessTitle: { fontSize: 15, fontWeight: '800', marginTop: 5 },
+  receiptMeta: { fontSize: 11, marginTop: 3 },
+  receiptRow: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  receiptItemName: { flex: 1, fontSize: 12, fontWeight: '600' },
+  receiptItemPrice: { fontSize: 12, fontWeight: '700' },
+  receiptTotalRow: { borderTopWidth: 1, marginTop: 8, paddingTop: 13, flexDirection: 'row', justifyContent: 'space-between' },
+  receiptTotalLabel: { fontSize: 14, fontWeight: '800' },
+  receiptTotalValue: { fontSize: 16, fontWeight: '800' },
+  receiptDetail: { fontSize: 11, lineHeight: 17, marginTop: 10 },
+  receiptActions: { gap: 9, marginTop: 17 },
+  receiptShareButton: { minHeight: 48, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7 },
   qrBox: { width: 210, height: 210, padding: 15, marginVertical: 20, flexDirection: 'row', flexWrap: 'wrap', gap: 2, borderWidth: 1 },
   qrisImage: { width: 210, height: 210, marginVertical: 20, borderRadius: 12 },
   backToCash: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 },
