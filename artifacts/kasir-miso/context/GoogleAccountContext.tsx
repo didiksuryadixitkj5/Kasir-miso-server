@@ -37,6 +37,11 @@ const GOOGLE_OAUTH_VERIFIER_KEY = 'warung-google-oauth-verifier-v1';
 const LEGACY_GOOGLE_CONNECTION_KEY = 'warung-google-connection-v1';
 const GOOGLE_ACCOUNT_EMAIL_KEY = 'warung-google-account-email-v1';
 const GOOGLE_CLIENT_IDS_KEY = 'warung-google-client-ids-v1';
+const WEB_PERSISTENT_SESSION_KEYS = new Set([
+  GOOGLE_SESSION_TOKEN_KEY,
+  GOOGLE_SESSION_EXPIRY_KEY,
+  GOOGLE_DEVICE_ID_KEY,
+]);
 const GOOGLE_CLIENT_ID_FALLBACK = 'google-client-id-not-configured';
 export type GoogleClientIds = {
   web: string;
@@ -102,14 +107,27 @@ async function withTransientDriveRetry<T>(operation: () => Promise<T>): Promise<
 
 async function getProtectedItem(key: string) {
   if (Platform.OS === 'web') {
-    return typeof window === 'undefined' ? null : window.sessionStorage.getItem(key);
+    if (typeof window === 'undefined') return null;
+    const storage = WEB_PERSISTENT_SESSION_KEYS.has(key) ? window.localStorage : window.sessionStorage;
+    const value = storage.getItem(key);
+    if (value !== null || storage === window.sessionStorage) return value;
+
+    // Migrate sessions created by the previous web preview, which used
+    // sessionStorage and could lose the device identity when the preview
+    // recreated its document while changing routes.
+    const legacyValue = window.sessionStorage.getItem(key);
+    if (legacyValue !== null) window.localStorage.setItem(key, legacyValue);
+    return legacyValue;
   }
   return SecureStore.getItemAsync(key);
 }
 
 async function setProtectedItem(key: string, value: string) {
   if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined') window.sessionStorage.setItem(key, value);
+    if (typeof window !== 'undefined') {
+      const storage = WEB_PERSISTENT_SESSION_KEYS.has(key) ? window.localStorage : window.sessionStorage;
+      storage.setItem(key, value);
+    }
     return;
   }
   await SecureStore.setItemAsync(key, value, {
@@ -119,7 +137,10 @@ async function setProtectedItem(key: string, value: string) {
 
 async function removeProtectedItem(key: string) {
   if (Platform.OS === 'web') {
-    if (typeof window !== 'undefined') window.sessionStorage.removeItem(key);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(key);
+    }
     return;
   }
   await SecureStore.deleteItemAsync(key);
@@ -195,7 +216,6 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
       getProtectedItem(GOOGLE_SESSION_EXPIRY_KEY),
       getProtectedItem(GOOGLE_DEVICE_ID_KEY),
       AsyncStorage.getItem(GOOGLE_ACCOUNT_EMAIL_KEY),
-      AsyncStorage.removeItem(GOOGLE_SESSION_TOKEN_KEY),
       AsyncStorage.removeItem(LEGACY_GOOGLE_CONNECTION_KEY),
     ])
       .then(async ([savedClientIds, savedToken, savedExpiry, savedDeviceId, savedEmail]) => {
