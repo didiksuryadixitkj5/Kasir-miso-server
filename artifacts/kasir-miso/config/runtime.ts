@@ -2,7 +2,7 @@
  * The published API URL is the fallback used by standalone APK builds.
  * APK builds do not receive Replit's development-only domain variables.
  */
-export const DEFAULT_API_BASE_URL = 'https://kasir-miso-server--hyha444.replit.app';
+export const DEFAULT_API_BASE_URL = 'https://darkkhaki-burly-signature--sugiyort3rw1.replit.app';
 
 export function getApiBaseUrl() {
   const explicitApiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
