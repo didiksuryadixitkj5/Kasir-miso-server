@@ -76,11 +76,52 @@ export async function disconnectGoogleAccount(
 export async function downloadGoogleDriveBackup(
   options?: GoogleRequestOptions,
 ): Promise<GoogleDriveBackup> {
-  return customFetch<GoogleDriveBackup>("/api/google/backup", {
+  const start = await customFetch<{
+    downloadId: string;
+    totalChunks: number;
+    modifiedTime: string | null;
+  }>("/api/google/backup/chunk", {
     ...options,
     method: "GET",
     responseType: "json",
   });
+  if (
+    !start.downloadId
+    || !Number.isInteger(start.totalChunks)
+    || start.totalChunks < 1
+  ) {
+    throw new Error("Sesi restore Google Drive tidak valid.");
+  }
+
+  const parts: string[] = [];
+  for (let index = 0; index < start.totalChunks; index += 1) {
+    const chunk = await customFetch<{
+      content: string;
+      chunkIndex: number;
+      totalChunks: number;
+      modifiedTime: string | null;
+    }>(
+      `/api/google/backup/chunk?downloadId=${encodeURIComponent(start.downloadId)}&chunkIndex=${index}`,
+      {
+        ...options,
+        method: "GET",
+        responseType: "json",
+      },
+    );
+    if (
+      chunk.chunkIndex !== index
+      || chunk.totalChunks !== start.totalChunks
+      || typeof chunk.content !== "string"
+    ) {
+      throw new Error("Potongan restore Google Drive tidak lengkap.");
+    }
+    parts.push(chunk.content);
+  }
+
+  return {
+    content: parts.join(""),
+    modifiedTime: start.modifiedTime,
+  };
 }
 
 export async function uploadGoogleDriveBackup(

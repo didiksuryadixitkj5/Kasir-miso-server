@@ -63,11 +63,21 @@ type PendingBackupUpload = {
   createdAt: number;
 };
 
+type PendingBackupDownload = {
+  deviceId: string;
+  content: string;
+  totalChunks: number;
+  modifiedTime: string | null;
+  createdAt: number;
+};
+
 let schemaPromise: Promise<unknown> | null = null;
 const pendingBackupUploads = new Map<string, PendingBackupUpload>();
+const pendingBackupDownloads = new Map<string, PendingBackupDownload>();
 const BACKUP_CHUNK_TTL_MS = 10 * 60 * 1000;
 const MAX_BACKUP_CHUNKS = 200;
 const MAX_BACKUP_CHUNK_LENGTH = 300 * 1024;
+const BACKUP_DOWNLOAD_CHUNK_LENGTH = 48 * 1024;
 
 function ensureSchema() {
   if (!schemaPromise) {
@@ -309,6 +319,9 @@ function cleanupPendingBackupUploads() {
   for (const [uploadId, upload] of pendingBackupUploads) {
     if (upload.createdAt < cutoff) pendingBackupUploads.delete(uploadId);
   }
+  for (const [downloadId, download] of pendingBackupDownloads) {
+    if (download.createdAt < cutoff) pendingBackupDownloads.delete(downloadId);
+  }
 }
 
 async function saveBackupToDrive(
@@ -519,6 +532,73 @@ router.put("/google/backup", async (req, res) => {
   } catch (error) {
     if (error instanceof GoogleBackupError) return sendError(res, error.status, error.message);
     return sendError(res, 502, error instanceof Error ? error.message : "Backup Google Drive belum dapat disimpan.");
+  }
+});
+
+router.get("/google/backup/chunk", async (req, res) => {
+  try {
+    const connection = await getAuthenticatedConnection(req);
+    if (!connection) return sendError(res, 401, "Sesi Google tidak ditemukan atau sudah kedaluwarsa.");
+
+    cleanupPendingBackupUploads();
+    const downloadId = typeof req.query.downloadId === "string" ? req.query.downloadId : null;
+    const rawChunkIndex = typeof req.query.chunkIndex === "string" ? req.query.chunkIndex : null;
+
+    if (!downloadId) {
+      const accessToken = await getAccessToken(connection);
+      const file = await findBackupFile(accessToken, connection.drive_file_id);
+      if (!file?.id) return sendError(res, 404, "Backup Kasir Miso belum tersedia di Google Drive.");
+      await updateDriveFileId(connection.device_id, file.id);
+      const response = await fetchGoogle(`${GOOGLE_FILES_URL}/${encodeURIComponent(file.id)}?alt=media`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) return sendError(res, response.status, "Backup Google Drive belum dapat diunduh.");
+
+      const content = await response.text();
+      const totalChunks = Math.max(1, Math.ceil(content.length / BACKUP_DOWNLOAD_CHUNK_LENGTH));
+      const nextDownloadId = `download-${randomBytes(12).toString("hex")}`;
+      pendingBackupDownloads.set(`${connection.device_id}:${nextDownloadId}`, {
+        deviceId: connection.device_id,
+        content,
+        totalChunks,
+        modifiedTime: file.modifiedTime ?? null,
+        createdAt: Date.now(),
+      });
+      return res.json({
+        downloadId: nextDownloadId,
+        totalChunks,
+        modifiedTime: file.modifiedTime ?? null,
+      });
+    }
+
+    const download = pendingBackupDownloads.get(`${connection.device_id}:${downloadId}`);
+    const chunkIndex = Number(rawChunkIndex);
+    if (
+      !download
+      || download.deviceId !== connection.device_id
+      || rawChunkIndex === null
+      || !Number.isInteger(chunkIndex)
+      || chunkIndex < 0
+      || chunkIndex >= download.totalChunks
+    ) {
+      return sendError(res, 400, "Permintaan potongan restore tidak valid.");
+    }
+
+    const content = download.content.slice(
+      chunkIndex * BACKUP_DOWNLOAD_CHUNK_LENGTH,
+      (chunkIndex + 1) * BACKUP_DOWNLOAD_CHUNK_LENGTH,
+    );
+    if (chunkIndex === download.totalChunks - 1) {
+      pendingBackupDownloads.delete(`${connection.device_id}:${downloadId}`);
+    }
+    return res.json({
+      content,
+      chunkIndex,
+      totalChunks: download.totalChunks,
+      modifiedTime: download.modifiedTime,
+    });
+  } catch (error) {
+    return sendError(res, 502, error instanceof Error ? error.message : "Backup Google Drive belum dapat diunduh.");
   }
 });
 
