@@ -464,8 +464,6 @@ export default function OtherScreen() {
           onPress={() => router.push('/cash-flow')}
         />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
-        <MenuRow icon="wallet-outline" label="Akun Kas & Bank" onPress={() => showComingSoon('Akun kas & bank')} />
-        <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow icon="grid-outline" label="Kelola Kategori" onPress={() => router.push('/inventory')} />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow icon="bar-chart-outline" label="Lihat Laporan" onPress={() => router.push('/reports')} />
