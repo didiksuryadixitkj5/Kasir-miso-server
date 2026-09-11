@@ -3,6 +3,8 @@ import { Alert, Image, Modal, Platform, Pressable, ScrollView, Share, StyleSheet
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { themeOptions } from '@/constants/colors';
 import { consignmentKey, formatRp, getOrderItems, localDate, orderTotal, useWarung } from '@/context/WarungContext';
 import { useColors } from '@/hooks/useColors';
@@ -24,6 +26,41 @@ type Receipt = {
   tables: number[];
 };
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function buildReceiptHtml(receipt: Receipt, catalogItems: Array<{ id: string; name: string; price: number }>) {
+  const rows = receipt.items.map((item) => {
+    const catalogItem = catalogItems.find((entry) => entry.id === item.menu);
+    const name = item.displayName ?? catalogItem?.name ?? 'Item dihapus';
+    const unitPrice = item.unitPrice ?? catalogItem?.price ?? 0;
+    return `<div class="row"><span>${item.qty}x ${escapeHtml(name)}</span><span>${formatRp(unitPrice * item.qty)}</span></div>`;
+  }).join('');
+  const table = receipt.tables.length ? `<div>Meja: ${receipt.tables.map((tableNumber) => `M${tableNumber}`).join(' + ')}</div>` : '';
+  const cashDetails = receipt.method === 'Tunai'
+    ? `<div>Diterima: ${formatRp(receipt.received)}</div><div>Kembalian: ${formatRp(receipt.change)}</div>`
+    : '';
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1" /><style>
+    @page { margin: 5mm; } * { box-sizing: border-box; } body { width: 58mm; margin: 0 auto; color: #111827; font-family: Arial, sans-serif; font-size: 12px; line-height: 1.45; }
+    h1 { font-size: 18px; text-align: center; margin: 0 0 2px; } .center { text-align: center; } .muted { color: #6b7280; font-size: 10px; }
+    .rule { border-top: 1px dashed #9ca3af; margin: 10px 0; } .row { display: flex; justify-content: space-between; gap: 8px; margin: 4px 0; }
+    .row span:first-child { flex: 1; } .row span:last-child { text-align: right; white-space: nowrap; } .total { display: flex; justify-content: space-between; font-size: 15px; font-weight: 700; margin-top: 8px; }
+    .footer { margin-top: 14px; text-align: center; font-size: 10px; }
+  </style></head><body>
+    <h1>KASIR MISO</h1><div class="center muted">Bukti pembayaran</div><div class="rule"></div>
+    <div>No. transaksi: ${escapeHtml(receipt.receiptNumber)}</div><div>${escapeHtml(receipt.paidAt)}</div>${table}
+    <div class="rule"></div>${rows}<div class="rule"></div>
+    <div class="total"><span>TOTAL</span><span>${formatRp(receipt.total)}</span></div>
+    <div>Metode: ${receipt.method}</div>${cashDetails}<div class="footer">Terima kasih sudah berbelanja.</div>
+  </body></html>`;
+}
+
 export default function CashierScreen() {
   const c = useColors();
   const router = useRouter();
@@ -40,6 +77,7 @@ export default function CashierScreen() {
   const [assigningTableTo, setAssigningTableTo] = useState<string | null>(null);
   const [addingTo, setAddingTo] = useState<ActiveOrder | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [receiptAction, setReceiptAction] = useState<'print' | 'pdf' | null>(null);
   const active = activeOrders.find((order) => order.id === paying);
   const catalogItems = [
     ...menus.map((menu) => ({ ...menu, category: menu.category || 'Lainnya' })),
@@ -118,6 +156,41 @@ export default function CashierScreen() {
       await Share.share({ message: receiptText, title: `Struk ${receipt?.receiptNumber ?? ''}` });
     } catch {
       Alert.alert('Struk belum terbagi', 'Coba tekan tombol bagikan lagi.');
+    }
+  };
+  const printReceipt = async () => {
+    if (!receipt) return;
+    setReceiptAction('print');
+    try {
+      if (Platform.OS === 'web') {
+        window.print();
+        return;
+      }
+      await Print.printAsync({ html: buildReceiptHtml(receipt, catalogItems) });
+    } catch {
+      Alert.alert('Cetak belum tersedia', 'Gunakan tombol bagikan untuk mengirim struk ke aplikasi lain.');
+    } finally {
+      setReceiptAction(null);
+    }
+  };
+  const createReceiptPdf = async () => {
+    if (!receipt) return;
+    setReceiptAction('pdf');
+    try {
+      if (Platform.OS === 'web') {
+        window.print();
+        return;
+      }
+      const { uri } = await Print.printToFileAsync({ html: buildReceiptHtml(receipt, catalogItems) });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Bagikan PDF struk' });
+      } else {
+        Alert.alert('PDF siap', 'Perangkat ini tidak menyediakan menu berbagi untuk file PDF.');
+      }
+    } catch {
+      Alert.alert('PDF belum dibuat', 'Gunakan tombol bagikan untuk mengirim struk sebagai teks.');
+    } finally {
+      setReceiptAction(null);
     }
   };
   const toggleTable = (number: number) => { haptic(); setTables((current) => current.includes(number) ? current.filter((item) => item !== number) : [...current, number]); };
@@ -408,6 +481,16 @@ export default function CashierScreen() {
                </Text>
              </ScrollView>
              <View style={s.receiptActions}>
+               <View style={s.receiptActionRow}>
+                 <Pressable testID="print-receipt" disabled={!!receiptAction} onPress={printReceipt} style={({ pressed }) => [s.receiptActionButton, { borderColor: c.border, backgroundColor: c.secondary, opacity: receiptAction ? 0.55 : (pressed ? 0.7 : 1) }]}>
+                   <Ionicons name="print-outline" size={18} color={c.foreground} />
+                   <Text style={[s.receiptActionText, { color: c.foreground }]}>{receiptAction === 'print' ? 'Memproses...' : 'Cetak'}</Text>
+                 </Pressable>
+                 <Pressable testID="pdf-receipt" disabled={!!receiptAction} onPress={createReceiptPdf} style={({ pressed }) => [s.receiptActionButton, { borderColor: c.border, backgroundColor: c.secondary, opacity: receiptAction ? 0.55 : (pressed ? 0.7 : 1) }]}>
+                   <Ionicons name="document-text-outline" size={18} color={c.foreground} />
+                   <Text style={[s.receiptActionText, { color: c.foreground }]}>{receiptAction === 'pdf' ? 'Memproses...' : 'PDF'}</Text>
+                 </Pressable>
+               </View>
                <Pressable testID="share-receipt" onPress={shareReceipt} style={({ pressed }) => [s.receiptShareButton, { borderColor: c.primary, opacity: pressed ? 0.7 : 1 }]}>
                  <Ionicons name="share-social-outline" size={18} color={c.primary} />
                  <Text style={[s.outlineText, { color: c.primary }]}>Bagikan struk</Text>
@@ -557,6 +640,9 @@ const s = StyleSheet.create({
   receiptTotalValue: { fontSize: 16, fontWeight: '800' },
   receiptDetail: { fontSize: 11, lineHeight: 17, marginTop: 10 },
   receiptActions: { gap: 9, marginTop: 17 },
+  receiptActionRow: { flexDirection: 'row', gap: 9 },
+  receiptActionButton: { flex: 1, minHeight: 46, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7 },
+  receiptActionText: { fontSize: 12, fontWeight: '800' },
   receiptShareButton: { minHeight: 48, borderWidth: 1, borderRadius: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 7 },
   qrBox: { width: 210, height: 210, padding: 15, marginVertical: 20, flexDirection: 'row', flexWrap: 'wrap', gap: 2, borderWidth: 1 },
   qrisImage: { width: 210, height: 210, marginVertical: 20, borderRadius: 12 },
