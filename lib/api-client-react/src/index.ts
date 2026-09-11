@@ -87,7 +87,10 @@ export async function uploadGoogleDriveBackup(
   input: GoogleDriveUpload,
   options?: GoogleRequestOptions,
 ): Promise<GoogleDriveUploadResult> {
-  const chunkSize = 256 * 1024;
+  // Keep a wide margin below the public proxy request limit. The proxy can
+  // reject requests before they reach Express, even though Express accepts
+  // much larger JSON bodies.
+  const chunkSize = 64 * 1024;
   if (input.content.length > chunkSize) {
     const uploadId = `backup-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const totalChunks = Math.ceil(input.content.length / chunkSize);
