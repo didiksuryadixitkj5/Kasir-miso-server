@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter, type Href } from 'expo-router';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
@@ -11,6 +12,8 @@ type TutorialStep = {
   title: string;
   body: string;
   points: string[];
+  targetLabel?: string;
+  targetRoute?: Href;
 };
 
 const steps: TutorialStep[] = [
@@ -25,28 +28,44 @@ const steps: TutorialStep[] = [
     icon: 'receipt-outline',
     eyebrow: 'LANGKAH 1',
     title: 'Mulai dari tab Kasir',
-    body: 'Tambahkan menu, pilih pesanan pelanggan, lalu simpan transaksi dengan cepat.',
+    body: 'Tekan tombol Kasir di bar bawah untuk mencatat pesanan pelanggan dan transaksi.',
     points: ['Tekan menu untuk menambah pesanan', 'Atur jumlah dan catatan pesanan', 'Lihat ringkasan sebelum menyimpan'],
+    targetLabel: 'Kasir',
+    targetRoute: '/',
   },
   {
     icon: 'restaurant-outline',
     eyebrow: 'LANGKAH 2',
-    title: 'Pantau operasional harian',
-    body: 'Gunakan Dapur untuk antrian pesanan dan Catatan untuk belanja atau pengingat warung.',
-    points: ['Pesanan dapur tetap mudah dibaca', 'Catatan belanja tersusun rapi', 'Arus Kas merangkum pemasukan dan pengeluaran'],
+    title: 'Pantau pesanan di Dapur',
+    body: 'Tekan tombol Dapur di bar bawah untuk melihat antrian yang perlu dimasak.',
+    points: ['Pesanan baru masuk ke antrian', 'Tandai pesanan yang sedang dibuat', 'Selesaikan pesanan setelah siap'],
+    targetLabel: 'Dapur',
+    targetRoute: '/kitchen',
+  },
+  {
+    icon: 'create-outline',
+    eyebrow: 'LANGKAH 3',
+    title: 'Simpan pengingat di Catatan',
+    body: 'Tekan tombol Catatan untuk menyimpan daftar belanja dan hal penting untuk warung.',
+    points: ['Buat catatan biasa', 'Simpan daftar yang perlu dibawa', 'Edit atau hapus catatan kapan saja'],
+    targetLabel: 'Catatan',
+    targetRoute: '/notes',
   },
   {
     icon: 'shield-checkmark-outline',
-    eyebrow: 'LANGKAH 3',
+    eyebrow: 'LANGKAH 4',
     title: 'Jaga data tetap aman',
-    body: 'Buka tab Lainnya untuk membuat backup offline atau menyimpan cadangan ke Google Drive.',
+    body: 'Tekan tombol Lainnya untuk membuka Backup, Google Drive, QRIS, dan Arus Kas.',
     points: ['Backup bisa disimpan sebagai file JSON', 'Restore memeriksa data sebelum diterapkan', 'Backup online mendeteksi konflik perangkat'],
+    targetLabel: 'Lainnya',
+    targetRoute: '/other',
   },
 ];
 
 export function FirstLaunchTutorial() {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [checked, setChecked] = useState(false);
   const [visible, setVisible] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
@@ -77,6 +96,15 @@ export function FirstLaunchTutorial() {
 
   const currentStep = steps[stepIndex];
   const isLastStep = stepIndex === steps.length - 1;
+  const openTarget = () => {
+    if (!currentStep.targetRoute) {
+      setStepIndex((current) => current + 1);
+      return;
+    }
+
+    finish();
+    router.replace(currentStep.targetRoute);
+  };
 
   if (!checked || !visible) return null;
 
@@ -144,8 +172,40 @@ export function FirstLaunchTutorial() {
             ))}
           </View>
 
+          {currentStep.targetLabel ? (
+            <View style={[styles.targetCallout, { backgroundColor: c.secondary, borderColor: c.border }]}>
+              <View style={[styles.targetIcon, { backgroundColor: c.primary }]}>
+                <Ionicons name="hand-left-outline" size={17} color={c.primaryForeground} />
+              </View>
+              <View style={styles.targetCopy}>
+                <Text style={[styles.targetTitle, { color: c.foreground }]}>
+                  Arahkan ke tombol {currentStep.targetLabel}
+                </Text>
+                <Text style={[styles.targetBody, { color: c.mutedForeground }]}>
+                  Tombolnya ada di bar bawah aplikasi.
+                </Text>
+              </View>
+              <Ionicons name="arrow-down" size={21} color={c.primary} />
+            </View>
+          ) : null}
+
           <View style={styles.actions}>
-            {!isLastStep ? (
+            {currentStep.targetLabel && isLastStep ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Buka tab ${currentStep.targetLabel}`}
+                onPress={openTarget}
+                style={({ pressed }) => [
+                  styles.nextButton,
+                  { backgroundColor: c.primary, opacity: pressed ? 0.78 : 1 },
+                ]}
+              >
+                <Text style={[styles.nextButtonText, { color: c.primaryForeground }]}>
+                  Buka tab {currentStep.targetLabel}
+                </Text>
+                <Ionicons name="arrow-forward" size={17} color={c.primaryForeground} />
+              </Pressable>
+            ) : !isLastStep ? (
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Langkah berikutnya"
@@ -172,6 +232,22 @@ export function FirstLaunchTutorial() {
                 <Ionicons name="checkmark" size={18} color={c.primaryForeground} />
               </Pressable>
             )}
+            {currentStep.targetLabel && !isLastStep ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Langsung buka tab ${currentStep.targetLabel}`}
+                onPress={openTarget}
+                style={({ pressed }) => [
+                  styles.targetButton,
+                  { borderColor: c.border, backgroundColor: c.secondary, opacity: pressed ? 0.72 : 1 },
+                ]}
+              >
+                <Ionicons name="open-outline" size={16} color={c.primary} />
+                <Text style={[styles.targetButtonText, { color: c.secondaryForeground }]}>
+                  Langsung buka tab {currentStep.targetLabel}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         </View>
       </View>
@@ -265,6 +341,35 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: '600',
   },
+  targetCallout: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    marginTop: 23,
+  },
+  targetIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  targetCopy: {
+    flex: 1,
+  },
+  targetTitle: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+  },
+  targetBody: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
+  },
   actions: {
     marginTop: 28,
   },
@@ -279,6 +384,21 @@ const styles = StyleSheet.create({
   },
   nextButtonText: {
     fontSize: 13,
+    fontWeight: '800',
+  },
+  targetButton: {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+    marginTop: 9,
+  },
+  targetButtonText: {
+    fontSize: 12,
     fontWeight: '800',
   },
 });
