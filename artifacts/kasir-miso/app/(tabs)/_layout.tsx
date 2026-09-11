@@ -82,19 +82,20 @@ function ClassicTabLayout() {
           duration: 240,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
-        }).start();
+        }).start(() => {
+          setPreviewTabIndex(null);
+          swipeDirectionRef.current = 0;
+        });
         return;
       }
 
       isAnimatingSwipeRef.current = true;
       swipeDirectionRef.current = direction;
       setPreviewTabIndex(nextIndex);
-      const swipeDistance = Math.min(104, Math.max(84, width * 0.24));
-      const exitOffset = direction > 0 ? -swipeDistance : swipeDistance;
-      const enterOffset = -exitOffset;
+      const destinationOffset = direction > 0 ? -width : width;
 
       Animated.timing(swipeX, {
-        toValue: exitOffset,
+        toValue: destinationOffset,
         duration: 275,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
@@ -105,16 +106,10 @@ function ClassicTabLayout() {
         }
 
         router.replace(TAB_ROUTES[nextIndex]);
-        swipeX.setValue(enterOffset);
-        Animated.timing(swipeX, {
-          toValue: 0,
-          duration: 340,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }).start(() => {
-          setPreviewTabIndex(null);
-          isAnimatingSwipeRef.current = false;
-        });
+        swipeX.setValue(0);
+        setPreviewTabIndex(null);
+        swipeDirectionRef.current = 0;
+        isAnimatingSwipeRef.current = false;
       });
     },
     [router, swipeX, width],
@@ -134,9 +129,7 @@ function ClassicTabLayout() {
             setPreviewTabIndex(
               nextIndex >= 0 && nextIndex < TAB_ROUTES.length ? nextIndex : null,
             );
-            const swipeLimit = Math.min(104, Math.max(84, width * 0.24));
-            const resistedDistance = gestureState.dx * 0.88;
-            swipeX.setValue(Math.max(-swipeLimit, Math.min(swipeLimit, resistedDistance)));
+            swipeX.setValue(gestureState.dx);
           }
         },
         onPanResponderRelease: (_, gestureState) => {
@@ -145,26 +138,30 @@ function ClassicTabLayout() {
             Math.abs(gestureState.dx) < swipeThreshold ||
             Math.abs(gestureState.dx) < Math.abs(gestureState.dy)
           ) {
-            setPreviewTabIndex(null);
             Animated.timing(swipeX, {
               toValue: 0,
               duration: 240,
               easing: Easing.out(Easing.cubic),
               useNativeDriver: true,
-            }).start();
+            }).start(() => {
+              setPreviewTabIndex(null);
+              swipeDirectionRef.current = 0;
+            });
             return;
           }
 
           navigateBySwipe(gestureState.dx < 0 ? 1 : -1);
         },
         onPanResponderTerminate: () => {
-          setPreviewTabIndex(null);
           Animated.timing(swipeX, {
             toValue: 0,
             duration: 240,
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
-          }).start();
+          }).start(() => {
+            setPreviewTabIndex(null);
+            swipeDirectionRef.current = 0;
+          });
         },
       }),
     [navigateBySwipe, swipeX],
