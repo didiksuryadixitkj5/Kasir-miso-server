@@ -87,6 +87,38 @@ export async function uploadGoogleDriveBackup(
   input: GoogleDriveUpload,
   options?: GoogleRequestOptions,
 ): Promise<GoogleDriveUploadResult> {
+  const chunkSize = 256 * 1024;
+  if (input.content.length > chunkSize) {
+    const uploadId = `backup-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const totalChunks = Math.ceil(input.content.length / chunkSize);
+    let finalResult: GoogleDriveUploadResult | null = null;
+
+    for (let index = 0; index < totalChunks; index += 1) {
+      const headers = new Headers(options?.headers);
+      headers.set("X-Backup-Upload-ID", uploadId);
+      headers.set("X-Backup-Chunk-Index", String(index));
+      headers.set("X-Backup-Chunk-Total", String(totalChunks));
+
+      const result = await customFetch<GoogleDriveUploadResult | { complete: false }>(
+        "/api/google/backup/chunk",
+        {
+          ...options,
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            content: input.content.slice(index * chunkSize, (index + 1) * chunkSize),
+            expectedModifiedTime: input.expectedModifiedTime,
+          }),
+          responseType: "json",
+        },
+      );
+      if ("modifiedTime" in result) finalResult = result;
+    }
+
+    if (finalResult) return finalResult;
+    throw new Error("Backup Google Drive belum selesai diproses.");
+  }
+
   return customFetch<GoogleDriveUploadResult>("/api/google/backup", {
     ...options,
     method: "PUT",

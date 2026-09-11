@@ -45,7 +45,29 @@ type AuthenticatedConnection = GoogleConnectionRow & {
   session_hash: string;
 };
 
+class GoogleBackupError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "GoogleBackupError";
+  }
+}
+
+type PendingBackupUpload = {
+  deviceId: string;
+  totalChunks: number;
+  expectedModifiedTime: string | null;
+  chunks: Map<number, string>;
+  createdAt: number;
+};
+
 let schemaPromise: Promise<unknown> | null = null;
+const pendingBackupUploads = new Map<string, PendingBackupUpload>();
+const BACKUP_CHUNK_TTL_MS = 10 * 60 * 1000;
+const MAX_BACKUP_CHUNKS = 200;
+const MAX_BACKUP_CHUNK_LENGTH = 300 * 1024;
 
 function ensureSchema() {
   if (!schemaPromise) {
@@ -260,6 +282,94 @@ async function updateDriveFileId(deviceId: string, fileId: string) {
   );
 }
 
+function cleanupPendingBackupUploads() {
+  const cutoff = Date.now() - BACKUP_CHUNK_TTL_MS;
+  for (const [uploadId, upload] of pendingBackupUploads) {
+    if (upload.createdAt < cutoff) pendingBackupUploads.delete(uploadId);
+  }
+}
+
+async function saveBackupToDrive(
+  connection: AuthenticatedConnection,
+  content: string,
+  expectedModifiedTime: string | null,
+) {
+  const accessToken = await getAccessToken(connection);
+  const file = await findBackupFile(accessToken, connection.drive_file_id);
+  if (file?.modifiedTime && expectedModifiedTime && file.modifiedTime !== expectedModifiedTime) {
+    throw new GoogleBackupError(409, "Backup Google Drive lebih baru ditemukan dari perangkat lain.");
+  }
+
+  let fileId = file?.id;
+  let modifiedTime: string;
+  if (fileId) {
+    const response = await fetch(`${GOOGLE_UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: content,
+    });
+    if (!response.ok) throw new GoogleBackupError(response.status, "Backup Google Drive belum dapat diperbarui.");
+    const metadataResponse = await fetch(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,modifiedTime`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!metadataResponse.ok) {
+      throw new GoogleBackupError(
+        502,
+        "Backup Google Drive sudah diperbarui, tetapi waktu perubahannya belum dapat dikonfirmasi.",
+      );
+    }
+    const updated = (await metadataResponse.json()) as GoogleFile;
+    if (!updated.modifiedTime) {
+      throw new GoogleBackupError(
+        502,
+        "Backup Google Drive sudah diperbarui, tetapi waktu perubahannya belum dapat dikonfirmasi.",
+      );
+    }
+    modifiedTime = updated.modifiedTime;
+  } else {
+    const boundary = `kasir-miso-${randomBytes(12).toString("hex")}`;
+    const metadata = JSON.stringify({ name: BACKUP_FILE_NAME, mimeType: "application/json" });
+    const multipartBody = [
+      `--${boundary}`,
+      "Content-Type: application/json; charset=UTF-8",
+      "",
+      metadata,
+      `--${boundary}`,
+      "Content-Type: application/json",
+      "",
+      content,
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    const response = await fetch(`${GOOGLE_UPLOAD_URL}?uploadType=multipart&fields=id,modifiedTime`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body: multipartBody,
+    });
+    const created = (await response.json()) as GoogleFile;
+    if (!response.ok || !created.id) {
+      throw new GoogleBackupError(response.status, "Backup Google Drive belum dapat dibuat.");
+    }
+    fileId = created.id;
+    if (!created.modifiedTime) {
+      await updateDriveFileId(connection.device_id, created.id);
+      throw new GoogleBackupError(
+        502,
+        "Backup Google Drive sudah dibuat, tetapi waktu perubahannya belum dapat dikonfirmasi.",
+      );
+    }
+    modifiedTime = created.modifiedTime;
+  }
+  if (fileId) await updateDriveFileId(connection.device_id, fileId);
+  return { modifiedTime };
+}
+
 router.post("/google/connect", async (req, res) => {
   try {
     const { code, codeVerifier, redirectUri, clientId, deviceId } = req.body as Record<string, unknown>;
@@ -378,82 +488,77 @@ router.put("/google/backup", async (req, res) => {
     if (!connection) return sendError(res, 401, "Sesi Google tidak ditemukan atau sudah kedaluwarsa.");
     const { content, expectedModifiedTime } = req.body as Record<string, unknown>;
     if (typeof content !== "string") return sendError(res, 400, "Isi backup tidak valid.");
-    const accessToken = await getAccessToken(connection);
-    const file = await findBackupFile(accessToken, connection.drive_file_id);
-    if (file?.modifiedTime && typeof expectedModifiedTime === "string" && file.modifiedTime !== expectedModifiedTime) {
-      return sendError(res, 409, "Backup Google Drive lebih baru ditemukan dari perangkat lain.");
+    const result = await saveBackupToDrive(
+      connection,
+      content,
+      typeof expectedModifiedTime === "string" ? expectedModifiedTime : null,
+    );
+    return res.json(result);
+  } catch (error) {
+    if (error instanceof GoogleBackupError) return sendError(res, error.status, error.message);
+    return sendError(res, 502, error instanceof Error ? error.message : "Backup Google Drive belum dapat disimpan.");
+  }
+});
+
+router.put("/google/backup/chunk", async (req, res) => {
+  try {
+    const connection = await getAuthenticatedConnection(req);
+    if (!connection) return sendError(res, 401, "Sesi Google tidak ditemukan atau sudah kedaluwarsa.");
+
+    cleanupPendingBackupUploads();
+    const uploadId = req.get("X-Backup-Upload-ID");
+    const chunkIndex = Number(req.get("X-Backup-Chunk-Index"));
+    const totalChunks = Number(req.get("X-Backup-Chunk-Total"));
+    const { content, expectedModifiedTime } = req.body as Record<string, unknown>;
+    if (
+      !uploadId
+      || !Number.isInteger(chunkIndex)
+      || chunkIndex < 0
+      || !Number.isInteger(totalChunks)
+      || totalChunks < 1
+      || totalChunks > MAX_BACKUP_CHUNKS
+      || chunkIndex >= totalChunks
+      || typeof content !== "string"
+      || content.length > MAX_BACKUP_CHUNK_LENGTH
+    ) {
+      return sendError(res, 400, "Potongan backup tidak valid.");
     }
 
-    let fileId = file?.id;
-    let modifiedTime: string;
-    if (fileId) {
-      const response = await fetch(`${GOOGLE_UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: content,
-      });
-      if (!response.ok) return sendError(res, response.status, "Backup Google Drive belum dapat diperbarui.");
-      const metadataResponse = await fetch(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,modifiedTime`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!metadataResponse.ok) {
-        return sendError(
-          res,
-          502,
-          "Backup Google Drive sudah diperbarui, tetapi waktu perubahannya belum dapat dikonfirmasi.",
-        );
-      }
-      const updated = (await metadataResponse.json()) as GoogleFile;
-      if (!updated.modifiedTime) {
-        return sendError(
-          res,
-          502,
-          "Backup Google Drive sudah diperbarui, tetapi waktu perubahannya belum dapat dikonfirmasi.",
-        );
-      }
-      modifiedTime = updated.modifiedTime;
-    } else {
-      const boundary = `kasir-miso-${randomBytes(12).toString("hex")}`;
-      const metadata = JSON.stringify({ name: BACKUP_FILE_NAME, mimeType: "application/json" });
-      const multipartBody = [
-        `--${boundary}`,
-        "Content-Type: application/json; charset=UTF-8",
-        "",
-        metadata,
-        `--${boundary}`,
-        "Content-Type: application/json",
-        "",
-        content,
-        `--${boundary}--`,
-        "",
-      ].join("\r\n");
-      const response = await fetch(`${GOOGLE_UPLOAD_URL}?uploadType=multipart&fields=id,modifiedTime`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": `multipart/related; boundary=${boundary}`,
-        },
-        body: multipartBody,
-      });
-      const created = (await response.json()) as GoogleFile;
-      if (!response.ok || !created.id) return sendError(res, response.status, "Backup Google Drive belum dapat dibuat.");
-      fileId = created.id;
-      if (!created.modifiedTime) {
-        await updateDriveFileId(connection.device_id, created.id);
-        return sendError(
-          res,
-          502,
-          "Backup Google Drive sudah dibuat, tetapi waktu perubahannya belum dapat dikonfirmasi.",
-        );
-      }
-      modifiedTime = created.modifiedTime;
+    const key = `${connection.device_id}:${uploadId}`;
+    let upload = pendingBackupUploads.get(key);
+    if (!upload) {
+      upload = {
+        deviceId: connection.device_id,
+        totalChunks,
+        expectedModifiedTime: typeof expectedModifiedTime === "string" ? expectedModifiedTime : null,
+        chunks: new Map(),
+        createdAt: Date.now(),
+      };
+      pendingBackupUploads.set(key, upload);
     }
-    if (fileId) await updateDriveFileId(connection.device_id, fileId);
-    return res.json({ modifiedTime });
+    if (
+      upload.deviceId !== connection.device_id
+      || upload.totalChunks !== totalChunks
+      || upload.expectedModifiedTime !== (typeof expectedModifiedTime === "string" ? expectedModifiedTime : null)
+    ) {
+      pendingBackupUploads.delete(key);
+      return sendError(res, 400, "Rangkaian potongan backup berubah. Coba backup lagi.");
+    }
+
+    upload.chunks.set(chunkIndex, content);
+    if (upload.chunks.size !== totalChunks) {
+      return res.status(202).json({ complete: false });
+    }
+
+    const assembled = Array.from({ length: totalChunks }, (_, index) => upload?.chunks.get(index));
+    if (assembled.some((part): part is undefined => part === undefined)) {
+      return res.status(202).json({ complete: false });
+    }
+    pendingBackupUploads.delete(key);
+    const result = await saveBackupToDrive(connection, assembled.join(""), upload.expectedModifiedTime);
+    return res.json(result);
   } catch (error) {
+    if (error instanceof GoogleBackupError) return sendError(res, error.status, error.message);
     return sendError(res, 502, error instanceof Error ? error.message : "Backup Google Drive belum dapat disimpan.");
   }
 });
