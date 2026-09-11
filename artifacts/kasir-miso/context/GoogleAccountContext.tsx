@@ -87,6 +87,19 @@ const GoogleAccountContext = createContext<GoogleAccountContextValue | null>(nul
 
 const reconnectMessage = 'Koneksi Google Drive berakhir. Hubungkan ulang akun Google untuk melanjutkan backup.';
 
+async function withTransientDriveRetry<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await operation();
+    } catch (reason) {
+      const isTransient = reason instanceof ApiError && [502, 503, 504].includes(reason.status);
+      if (!isTransient || attempt === 2) throw reason;
+      await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+    }
+  }
+  throw new Error('Koneksi Google Drive belum berhasil.');
+}
+
 async function getProtectedItem(key: string) {
   if (Platform.OS === 'web') {
     return typeof window === 'undefined' ? null : window.sessionStorage.getItem(key);
@@ -336,15 +349,15 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
   const uploadDriveBackup = useCallback(async (content: string, expectedModifiedTime: string | null) => {
     if (!sessionToken || !deviceId) throw new Error('Hubungkan akun Google Drive terlebih dahulu.');
     try {
-      const uploaded = await uploadGoogleDriveBackup(
-        { content, expectedModifiedTime },
-        {
-          headers: {
-            Authorization: `Bearer ${sessionToken}`,
-            'X-Device-ID': deviceId,
+      const uploaded = await withTransientDriveRetry(() => uploadGoogleDriveBackup(
+          { content, expectedModifiedTime },
+          {
+            headers: {
+              Authorization: `Bearer ${sessionToken}`,
+              'X-Device-ID': deviceId,
+            },
           },
-        },
-      );
+        ));
       return { modifiedTime: uploaded.modifiedTime };
     } catch (reason) {
       return handleDriveError(reason);
@@ -354,12 +367,12 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
   const downloadDriveBackup = useCallback(async () => {
     if (!sessionToken || !deviceId) throw new Error('Hubungkan akun Google Drive terlebih dahulu.');
     try {
-      const backup = await downloadGoogleDriveBackup({
-        headers: {
-          Authorization: `Bearer ${sessionToken}`,
-          'X-Device-ID': deviceId,
-        },
-      });
+      const backup = await withTransientDriveRetry(() => downloadGoogleDriveBackup({
+          headers: {
+            Authorization: `Bearer ${sessionToken}`,
+            'X-Device-ID': deviceId,
+          },
+        }));
       return backup;
     } catch (reason) {
       return handleDriveError(reason);

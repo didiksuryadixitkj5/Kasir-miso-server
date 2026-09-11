@@ -168,6 +168,28 @@ function sendError(res: { status: (status: number) => { json: (body: unknown) =>
   res.status(status).json({ message });
 }
 
+function isTransientNetworkError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? error.code : undefined;
+  const message = error instanceof Error ? error.message : String(error);
+  return code === "EAI_AGAIN"
+    || code === "ETIMEDOUT"
+    || message.includes("EAI_AGAIN")
+    || message.includes("ETIMEDOUT");
+}
+
+async function fetchGoogle(input: string, init?: RequestInit) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await fetch(input, init);
+    } catch (error) {
+      if (!isTransientNetworkError(error) || attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
+  throw new Error("Google belum dapat dihubungi.");
+}
+
 async function exchangeAuthorizationCode(input: {
   code: string;
   codeVerifier: string;
@@ -188,7 +210,7 @@ async function exchangeAuthorizationCode(input: {
     body.set("client_secret", clientSecret);
   }
 
-  const response = await fetch(GOOGLE_TOKEN_URL, {
+  const response = await fetchGoogle(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
@@ -201,7 +223,7 @@ async function exchangeAuthorizationCode(input: {
 }
 
 async function fetchUserEmail(accessToken: string) {
-  const response = await fetch(GOOGLE_USERINFO_URL, {
+  const response = await fetchGoogle(GOOGLE_USERINFO_URL, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   const data = (await response.json()) as GoogleUserInfo;
@@ -242,7 +264,7 @@ async function getAccessToken(connection: GoogleConnectionRow) {
     if (!clientSecret) throw new Error("Google OAuth server secret belum dikonfigurasi.");
     body.set("client_secret", clientSecret);
   }
-  const response = await fetch(GOOGLE_TOKEN_URL, {
+  const response = await fetchGoogle(GOOGLE_TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
@@ -256,7 +278,7 @@ async function getAccessToken(connection: GoogleConnectionRow) {
 
 async function findBackupFile(accessToken: string, fileId?: string | null) {
   if (fileId) {
-    const response = await fetch(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,name,modifiedTime`, {
+    const response = await fetchGoogle(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,name,modifiedTime`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (response.ok) return (await response.json()) as GoogleFile;
@@ -264,7 +286,7 @@ async function findBackupFile(accessToken: string, fileId?: string | null) {
   }
   const query = encodeURIComponent(`name = '${BACKUP_FILE_NAME.replaceAll("'", "\\'")}' and trashed = false`);
   const orderBy = encodeURIComponent("modifiedTime desc");
-  const response = await fetch(
+  const response = await fetchGoogle(
     `${GOOGLE_FILES_URL}?q=${query}&fields=files(id,name,modifiedTime)&orderBy=${orderBy}&pageSize=1`,
     {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -303,7 +325,7 @@ async function saveBackupToDrive(
   let fileId = file?.id;
   let modifiedTime: string;
   if (fileId) {
-    const response = await fetch(`${GOOGLE_UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media`, {
+    const response = await fetchGoogle(`${GOOGLE_UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -312,7 +334,7 @@ async function saveBackupToDrive(
       body: content,
     });
     if (!response.ok) throw new GoogleBackupError(response.status, "Backup Google Drive belum dapat diperbarui.");
-    const metadataResponse = await fetch(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,modifiedTime`, {
+    const metadataResponse = await fetchGoogle(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,modifiedTime`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!metadataResponse.ok) {
@@ -344,7 +366,7 @@ async function saveBackupToDrive(
       `--${boundary}--`,
       "",
     ].join("\r\n");
-    const response = await fetch(`${GOOGLE_UPLOAD_URL}?uploadType=multipart&fields=id,modifiedTime`, {
+    const response = await fetchGoogle(`${GOOGLE_UPLOAD_URL}?uploadType=multipart&fields=id,modifiedTime`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -472,7 +494,7 @@ router.get("/google/backup", async (req, res) => {
     const file = await findBackupFile(accessToken, connection.drive_file_id);
     if (!file?.id) return sendError(res, 404, "Backup Kasir Miso belum tersedia di Google Drive.");
     await updateDriveFileId(connection.device_id, file.id);
-    const response = await fetch(`${GOOGLE_FILES_URL}/${encodeURIComponent(file.id)}?alt=media`, {
+    const response = await fetchGoogle(`${GOOGLE_FILES_URL}/${encodeURIComponent(file.id)}?alt=media`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!response.ok) return sendError(res, response.status, "Backup Google Drive belum dapat diunduh.");
