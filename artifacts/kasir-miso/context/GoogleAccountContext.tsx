@@ -36,23 +36,30 @@ const GOOGLE_DEVICE_ID_KEY = 'warung-google-device-id-v1';
 const GOOGLE_OAUTH_VERIFIER_KEY = 'warung-google-oauth-verifier-v1';
 const LEGACY_GOOGLE_CONNECTION_KEY = 'warung-google-connection-v1';
 const GOOGLE_ACCOUNT_EMAIL_KEY = 'warung-google-account-email-v1';
+const GOOGLE_CLIENT_IDS_KEY = 'warung-google-client-ids-v1';
 const GOOGLE_CLIENT_ID_FALLBACK = 'google-client-id-not-configured';
-const configuredGoogleClientIds = (Constants.expoConfig?.extra?.googleClientIds ?? {}) as {
+export type GoogleClientIds = {
+  web: string;
+  ios: string;
+  android: string;
+};
+const configuredGoogleClientIds = (Constants.expoConfig?.extra?.googleClientIds ?? {}) as Partial<GoogleClientIds>;
+const defaultGoogleClientIds: GoogleClientIds = {
+  web: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || configuredGoogleClientIds.web || '',
+  ios: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || configuredGoogleClientIds.ios || '',
+  android: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || configuredGoogleClientIds.android || '',
+};
+const nativeGoogleRedirectUri = 'com.kasirwarung.app:/oauthredirect';
+
+const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || configuredGoogleClientIds.web || GOOGLE_CLIENT_ID_FALLBACK;
+const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || configuredGoogleClientIds.ios || GOOGLE_CLIENT_ID_FALLBACK;
+const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || configuredGoogleClientIds.android || GOOGLE_CLIENT_ID_FALLBACK;
+
+type StoredGoogleClientIds = {
   web?: string;
   ios?: string;
   android?: string;
 };
-const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || configuredGoogleClientIds.web || GOOGLE_CLIENT_ID_FALLBACK;
-const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || configuredGoogleClientIds.ios || GOOGLE_CLIENT_ID_FALLBACK;
-const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || configuredGoogleClientIds.android || GOOGLE_CLIENT_ID_FALLBACK;
-const nativeGoogleRedirectUri = 'com.kasirwarung.app:/oauthredirect';
-
-const googleClientConfigured = Platform.select({
-  web: Boolean(process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || configuredGoogleClientIds.web),
-  ios: Boolean(process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || configuredGoogleClientIds.ios),
-  android: Boolean(process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || configuredGoogleClientIds.android),
-  default: false,
-});
 const googleServerConfigured = Boolean(
   getApiBaseUrl(),
 );
@@ -67,6 +74,9 @@ type GoogleAccountContextValue = {
   request: ReturnType<typeof Google.useAuthRequest>[0];
   promptAsync: ReturnType<typeof Google.useAuthRequest>[2];
   clientConfigured: boolean;
+  clientIdsComplete: boolean;
+  googleClientIds: GoogleClientIds;
+  saveGoogleClientIds: (clientIds: GoogleClientIds) => Promise<void>;
   serverConfigured: boolean;
   uploadDriveBackup: (content: string, expectedModifiedTime: string | null) => Promise<{ modifiedTime: string }>;
   downloadDriveBackup: () => Promise<{ content: string; modifiedTime: string | null }>;
@@ -109,6 +119,7 @@ function createDeviceId() {
 export function GoogleAccountProvider({ children }: { children: React.ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [email, setEmail] = useState('');
+  const [googleClientIds, setGoogleClientIds] = useState<GoogleClientIds>(defaultGoogleClientIds);
   const [connectionGeneration, setConnectionGeneration] = useState(0);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [deviceId, setDeviceId] = useState('');
@@ -118,9 +129,9 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
   const authAttemptActive = useRef(false);
   const latestAuthResponse = useRef<typeof response>(null);
   const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: googleWebClientId,
-    iosClientId: googleIosClientId,
-    androidClientId: googleAndroidClientId,
+    webClientId: googleClientIds.web || googleWebClientId,
+    iosClientId: googleClientIds.ios || googleIosClientId,
+    androidClientId: googleClientIds.android || googleAndroidClientId,
     redirectUri: Platform.OS === 'web' ? undefined : nativeGoogleRedirectUri,
     scopes: ['openid', 'profile', 'email', 'https://www.googleapis.com/auth/drive.file'],
     responseType: 'code',
@@ -166,6 +177,7 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     Promise.all([
+      AsyncStorage.getItem(GOOGLE_CLIENT_IDS_KEY),
       getProtectedItem(GOOGLE_SESSION_TOKEN_KEY),
       getProtectedItem(GOOGLE_SESSION_EXPIRY_KEY),
       getProtectedItem(GOOGLE_DEVICE_ID_KEY),
@@ -173,7 +185,19 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
       AsyncStorage.removeItem(GOOGLE_SESSION_TOKEN_KEY),
       AsyncStorage.removeItem(LEGACY_GOOGLE_CONNECTION_KEY),
     ])
-      .then(async ([savedToken, savedExpiry, savedDeviceId, savedEmail]) => {
+      .then(async ([savedClientIds, savedToken, savedExpiry, savedDeviceId, savedEmail]) => {
+        if (savedClientIds) {
+          try {
+            const parsed = JSON.parse(savedClientIds) as StoredGoogleClientIds;
+            setGoogleClientIds({
+              web: parsed.web ?? defaultGoogleClientIds.web,
+              ios: parsed.ios ?? defaultGoogleClientIds.ios,
+              android: parsed.android ?? defaultGoogleClientIds.android,
+            });
+          } catch {
+            await AsyncStorage.removeItem(GOOGLE_CLIENT_IDS_KEY);
+          }
+        }
         const activeDeviceId = savedDeviceId || createDeviceId();
         if (!savedDeviceId) await setProtectedItem(GOOGLE_DEVICE_ID_KEY, activeDeviceId);
         setDeviceId(activeDeviceId);
@@ -290,6 +314,17 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     };
   }, [deviceId, request, response, sessionToken]);
 
+  const saveGoogleClientIds = useCallback(async (clientIds: GoogleClientIds) => {
+    const normalized: GoogleClientIds = {
+      web: clientIds.web.trim(),
+      ios: clientIds.ios.trim(),
+      android: clientIds.android.trim(),
+    };
+    await AsyncStorage.setItem(GOOGLE_CLIENT_IDS_KEY, JSON.stringify(normalized));
+    setGoogleClientIds(normalized);
+    setAuthError('');
+  }, []);
+
   const handleDriveError = useCallback(async (reason: unknown): Promise<never> => {
     if (reason instanceof ApiError && reason.status === 401) {
       await clearLocalSession(reconnectMessage);
@@ -358,7 +393,18 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     authError,
     request,
     promptAsync: promptGoogleAsync,
-    clientConfigured: Boolean(googleClientConfigured),
+    clientConfigured: Boolean(
+      Platform.OS === 'web'
+        ? googleClientIds.web
+        : Platform.OS === 'ios'
+          ? googleClientIds.ios
+          : Platform.OS === 'android'
+            ? googleClientIds.android
+            : false,
+    ),
+    clientIdsComplete: Boolean(googleClientIds.web && googleClientIds.ios && googleClientIds.android),
+    googleClientIds,
+    saveGoogleClientIds,
     serverConfigured: googleServerConfigured,
     uploadDriveBackup,
     downloadDriveBackup,
@@ -373,6 +419,8 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     logout,
     promptGoogleAsync,
     request,
+    googleClientIds,
+    saveGoogleClientIds,
     sessionToken,
     uploadDriveBackup,
   ]);
