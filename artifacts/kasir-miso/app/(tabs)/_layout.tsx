@@ -15,14 +15,8 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import CashierScreen from './index';
-import KitchenScreen from './kitchen';
-import NotesScreen from './notes';
-import CalculatorScreen from './calculator';
-import OtherScreen from './other';
 
 const TAB_ROUTES = ['/', '/kitchen', '/notes', '/calculator', '/other'] as const;
-const TAB_PREVIEW_SCREENS = [CashierScreen, KitchenScreen, NotesScreen, CalculatorScreen, OtherScreen];
 
 function getTabIndex(pathname: string) {
   const normalizedPath = pathname.replace(/\/+$/, '') || '/';
@@ -51,7 +45,6 @@ function ClassicTabLayout() {
   const swipeX = useRef(new Animated.Value(0)).current;
   const isAnimatingSwipeRef = useRef(false);
   const swipeDirectionRef = useRef(0);
-  const [previewTabIndex, setPreviewTabIndex] = React.useState<number | null>(null);
   currentTabIndexRef.current = currentTabIndex;
   const tabIcon = (name: React.ComponentProps<typeof Feather>['name']) =>
     ({ color, focused }: { color: string; focused: boolean }) => (
@@ -76,14 +69,12 @@ function ClassicTabLayout() {
       const nextIndex = currentTabIndexRef.current + direction;
 
       if (nextIndex < 0 || nextIndex >= TAB_ROUTES.length || isAnimatingSwipeRef.current) {
-        setPreviewTabIndex(null);
         Animated.timing(swipeX, {
           toValue: 0,
           duration: 240,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }).start(() => {
-          setPreviewTabIndex(null);
           swipeDirectionRef.current = 0;
         });
         return;
@@ -91,23 +82,17 @@ function ClassicTabLayout() {
 
       isAnimatingSwipeRef.current = true;
       swipeDirectionRef.current = direction;
-      setPreviewTabIndex(nextIndex);
-      const destinationOffset = direction > 0 ? -width : width;
-
-      Animated.timing(swipeX, {
-        toValue: destinationOffset,
-        duration: 275,
+        // Keep the real Tabs navigator as the only owner of each screen.
+        // Rendering a second copy of the destination screen during the swipe
+        // can leave native navigation with an empty tree after router.replace.
+        router.replace(TAB_ROUTES[nextIndex]);
+        Animated.timing(swipeX, {
+          toValue: 0,
+          duration: 180,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start(({ finished }) => {
-        if (!finished) {
-          isAnimatingSwipeRef.current = false;
-          return;
-        }
-
-        router.replace(TAB_ROUTES[nextIndex]);
-        swipeX.setValue(0);
-        setPreviewTabIndex(null);
+          if (!finished) swipeX.setValue(0);
         swipeDirectionRef.current = 0;
         isAnimatingSwipeRef.current = false;
       });
@@ -126,9 +111,6 @@ function ClassicTabLayout() {
             const direction = gestureState.dx < 0 ? 1 : -1;
             const nextIndex = currentTabIndexRef.current + direction;
             swipeDirectionRef.current = direction;
-            setPreviewTabIndex(
-              nextIndex >= 0 && nextIndex < TAB_ROUTES.length ? nextIndex : null,
-            );
             swipeX.setValue(gestureState.dx);
           }
         },
@@ -144,7 +126,6 @@ function ClassicTabLayout() {
               easing: Easing.out(Easing.cubic),
               useNativeDriver: true,
             }).start(() => {
-              setPreviewTabIndex(null);
               swipeDirectionRef.current = 0;
             });
             return;
@@ -159,7 +140,6 @@ function ClassicTabLayout() {
             easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }).start(() => {
-            setPreviewTabIndex(null);
             swipeDirectionRef.current = 0;
           });
         },
@@ -169,20 +149,6 @@ function ClassicTabLayout() {
 
   return (
     <View style={s.gestureArea} {...panResponder.panHandlers}>
-      {previewTabIndex !== null ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            s.previewTrack,
-            {
-              left: swipeDirectionRef.current > 0 ? width : -width,
-              transform: [{ translateX: swipeX }],
-            },
-          ]}
-        >
-          {React.createElement(TAB_PREVIEW_SCREENS[previewTabIndex])}
-        </Animated.View>
-      ) : null}
       <Animated.View style={[s.screenTrack, { transform: [{ translateX: swipeX }] }]}>
         <Tabs
         screenOptions={{
@@ -286,8 +252,7 @@ export default function TabLayout() {
 
 const s = StyleSheet.create({
   gestureArea: { flex: 1, overflow: 'hidden' },
-  previewTrack: { position: 'absolute', top: 0, bottom: 0, width: '100%', zIndex: 0 },
-  screenTrack: { flex: 1, zIndex: 1 },
+  screenTrack: { flex: 1 },
   tabIcon: { minWidth: 42, height: 30, alignItems: 'center', justifyContent: 'center' },
   tabLabel: { marginTop: 1 },
 });
