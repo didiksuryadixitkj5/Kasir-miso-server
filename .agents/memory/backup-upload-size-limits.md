@@ -8,3 +8,7 @@ Large Google Drive backup payloads must be split into bounded requests before th
 **Why:** Embedded QRIS and menu images can make an otherwise valid local backup exceed the upstream request-size limit, returning an HTML 413 before the API route can format a useful error.
 
 **How to apply:** Keep the client chunk size comfortably below the proxy limit and assemble the chunks server-side before the Drive upload. Keep the direct endpoint for small backups and expire incomplete upload sessions.
+
+The Expo development workflow must override any stale `EXPO_PUBLIC_API_BASE_URL` so preview requests target the current API Server workflow. The production fallback remains separate for standalone builds.
+
+**Why:** A fresh client bundle can correctly call the chunk endpoint while an old published API deployment still returns `Cannot PUT /api/google/backup/chunk`.
