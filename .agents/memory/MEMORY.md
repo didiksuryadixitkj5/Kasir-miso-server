@@ -5,3 +5,4 @@
 - [Expo print package alignment](expo-print-package-alignment.md) — native Expo modules must match the installed SDK versions, even when an older version bundles successfully.
 - [Shopping expense backup compatibility](shopping-expense-backup-compatibility.md) — deduplication needs stable item IDs; legacy expenses may validly omit the optional link.
 - [Expo web session persistence](expo-web-session-persistence.md) — keep Google session tokens and device identity persistent across preview route/document recreation.
+- [Expo missing installed dependencies](expo-missing-installed-dependencies.md) — when Metro cannot resolve a manifest-listed Expo package, reconcile the filtered workspace install before changing imports or versions.
