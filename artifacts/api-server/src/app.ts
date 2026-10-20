@@ -31,6 +31,7 @@ app.use(
   }),
 );
 app.use(cors());
+app.use(express.raw({ type: "application/octet-stream", limit: "1mb" }));
 // Backups may include locally stored QRIS/menu images as data URLs. Keep the
 // request limit explicit and high enough for a normal warung backup instead of
 // letting Express reject it with its default 100kb HTML error page.

@@ -8,6 +8,7 @@ import {
   parseStoredBackup,
   type StoredBackup,
 } from '@/utils/backupEnvelope';
+import { restoreBackupArchive } from '@/utils/backupArchive';
 import {
   accountMetadataKey,
   isBackupDataKey,
@@ -66,6 +67,9 @@ const googleAccountState = vi.hoisted(() => ({
   email: 'owner@example.com',
   connectionGeneration: 0,
   hasDriveAccess: true,
+  getDriveArchiveInfo: vi.fn(),
+  downloadDriveArchive: vi.fn(),
+  uploadDriveArchive: vi.fn(),
   downloadDriveBackup: vi.fn(),
   uploadDriveBackup: vi.fn(),
 }));
@@ -197,6 +201,9 @@ describe('OnlineBackupProvider restoreLatest', () => {
     testState.data.clear();
     testState.failOnce(null);
     googleAccountState.connectionGeneration = 0;
+    googleAccountState.getDriveArchiveInfo.mockReset();
+    googleAccountState.downloadDriveArchive.mockReset();
+    googleAccountState.uploadDriveArchive.mockReset();
     googleAccountState.downloadDriveBackup.mockReset();
     googleAccountState.uploadDriveBackup.mockReset();
   });
@@ -254,8 +261,8 @@ describe('OnlineBackupProvider restoreLatest', () => {
       }),
       'warung-reminders-v1': JSON.stringify([{ id: 'reminder-new', title: 'Beli minyak' }]),
     });
-    googleAccountState.downloadDriveBackup.mockResolvedValue({
-      content: JSON.stringify(incoming),
+    googleAccountState.downloadDriveArchive.mockResolvedValue({
+      bytes: new TextEncoder().encode(JSON.stringify(incoming)),
       modifiedTime: '2026-09-10T08:00:00.000Z',
     });
     testState.failOnce('warung-reminders-v1');
@@ -326,8 +333,8 @@ describe('OnlineBackupProvider restoreLatest', () => {
         shoppingTomorrowDate: '2026-09-11',
       }),
     });
-    googleAccountState.downloadDriveBackup.mockResolvedValue({
-      content: JSON.stringify(incoming),
+    googleAccountState.downloadDriveArchive.mockResolvedValue({
+      bytes: new TextEncoder().encode(JSON.stringify(incoming)),
       modifiedTime: '2026-09-10T08:30:00.000Z',
     });
 
@@ -394,16 +401,16 @@ describe('OnlineBackupProvider restoreLatest', () => {
 
     testState.data.set('warung-state-v2', JSON.stringify(sourceState));
     testState.data.set(NOTES_STORAGE_KEY, JSON.stringify(sourceNotes));
-    googleAccountState.downloadDriveBackup.mockRejectedValue(
+    googleAccountState.getDriveArchiveInfo.mockRejectedValue(
       new ApiError(
         new Response(null, { status: 404, statusText: 'Not Found' }),
         null,
         { method: 'GET', url: '/google/drive/backup' },
       ),
     );
-    let uploadedContent = '';
-    googleAccountState.uploadDriveBackup.mockImplementation(async (content: string) => {
-      uploadedContent = content;
+    let uploadedContent = new Uint8Array();
+    googleAccountState.uploadDriveArchive.mockImplementation(async (bytes: Uint8Array) => {
+      uploadedContent = new Uint8Array(bytes);
       return { modifiedTime: '2026-09-10T08:30:00.000Z' };
     });
 
@@ -411,14 +418,15 @@ describe('OnlineBackupProvider restoreLatest', () => {
     await act(async () => {
       await expect(probe(sourceRenderer).backupNow()).resolves.toBeTruthy();
     });
-    const uploadedBackup = await parseStoredBackup(uploadedContent, isBackupDataKey);
+    const uploadedArchive = restoreBackupArchive(uploadedContent, 'online');
+    const uploadedBackup = await parseStoredBackup(uploadedArchive.payload, isBackupDataKey);
     expect(JSON.parse(uploadedBackup.storage['warung-state-v2'])).toEqual(sourceState);
     expect(JSON.parse(uploadedBackup.storage[NOTES_STORAGE_KEY])).toEqual(sourceNotes);
 
     sourceRenderer.unmount();
     testState.data.clear();
-    googleAccountState.downloadDriveBackup.mockResolvedValue({
-      content: uploadedContent,
+    googleAccountState.downloadDriveArchive.mockResolvedValue({
+      bytes: uploadedContent,
       modifiedTime: '2026-09-10T08:30:00.000Z',
     });
 
@@ -446,7 +454,7 @@ describe('OnlineBackupProvider restoreLatest', () => {
 
   it('marks a missing backup as blocked during automatic account restore', async () => {
     googleAccountState.connectionGeneration = 1;
-    googleAccountState.downloadDriveBackup.mockRejectedValue(
+    googleAccountState.downloadDriveArchive.mockRejectedValue(
       new ApiError(
         new Response(null, { status: 404, statusText: 'Not Found' }),
         null,
@@ -490,8 +498,8 @@ describe('OnlineBackupProvider restoreLatest', () => {
         }),
       },
     };
-    googleAccountState.downloadDriveBackup.mockResolvedValue({
-      content: JSON.stringify(legacyBackup),
+    googleAccountState.downloadDriveArchive.mockResolvedValue({
+      bytes: new TextEncoder().encode(JSON.stringify(legacyBackup)),
       modifiedTime: null,
     });
 

@@ -1,4 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { Readable } from "node:stream";
 import { pool } from "@workspace/db";
 import { Router, type IRouter, type Request } from "express";
 
@@ -8,8 +9,11 @@ const GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const GOOGLE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
 const GOOGLE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
 const BACKUP_FILE_NAME = "Kasir Miso Backup.json";
+const BACKUP_ARCHIVE_FILE_NAME = "Kasir Miso Backup.zip";
 const BACKUP_LOOKUP_UNAVAILABLE = "Status backup Google Drive belum dapat dipastikan. Coba lagi saat koneksi Google Drive tersedia.";
 const SESSION_TTL_DAYS = 30;
+const BACKUP_ARCHIVE_MAX_BYTES = 100 * 1024 * 1024;
+const BACKUP_ARCHIVE_CHUNK_BYTES = 256 * 1024;
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -27,6 +31,7 @@ type GoogleFile = {
   id: string;
   name?: string;
   modifiedTime?: string;
+  size?: string;
 };
 
 type GoogleFilesResponse = {
@@ -71,9 +76,23 @@ type PendingBackupDownload = {
   createdAt: number;
 };
 
+type PendingArchiveUpload = {
+  deviceId: string;
+  sessionUrl: string;
+  accessToken: string;
+  fileId: string | null;
+  totalBytes: number;
+  totalChunks: number;
+  expectedModifiedTime: string | null;
+  nextChunkIndex: number;
+  createdAt: number;
+  result?: { modifiedTime: string };
+};
+
 let schemaPromise: Promise<unknown> | null = null;
 const pendingBackupUploads = new Map<string, PendingBackupUpload>();
 const pendingBackupDownloads = new Map<string, PendingBackupDownload>();
+const pendingArchiveUploads = new Map<string, PendingArchiveUpload>();
 const BACKUP_CHUNK_TTL_MS = 10 * 60 * 1000;
 const MAX_BACKUP_CHUNKS = 200;
 const MAX_BACKUP_CHUNK_LENGTH = 300 * 1024;
@@ -307,6 +326,27 @@ async function findBackupFile(accessToken: string, fileId?: string | null) {
   return data.files?.[0] ?? null;
 }
 
+async function findBackupArchiveFile(accessToken: string, fileId?: string | null) {
+  if (fileId) {
+    const response = await fetchGoogle(`${GOOGLE_FILES_URL}/${encodeURIComponent(fileId)}?fields=id,name,modifiedTime,size`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (response.ok) return (await response.json()) as GoogleFile;
+    if (response.status !== 404) throw new Error(BACKUP_LOOKUP_UNAVAILABLE);
+  }
+  const query = encodeURIComponent(
+    `(name = '${BACKUP_ARCHIVE_FILE_NAME}' or name = '${BACKUP_FILE_NAME}') and trashed = false`,
+  );
+  const orderBy = encodeURIComponent("modifiedTime desc");
+  const response = await fetchGoogle(
+    `${GOOGLE_FILES_URL}?q=${query}&fields=files(id,name,modifiedTime,size)&orderBy=${orderBy}&pageSize=10`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) throw new Error(BACKUP_LOOKUP_UNAVAILABLE);
+  const data = (await response.json()) as GoogleFilesResponse;
+  return data.files?.[0] ?? null;
+}
+
 async function updateDriveFileId(deviceId: string, fileId: string) {
   await pool.query(
     "UPDATE google_connections SET drive_file_id = $1, updated_at = NOW() WHERE device_id = $2",
@@ -321,6 +361,9 @@ function cleanupPendingBackupUploads() {
   }
   for (const [downloadId, download] of pendingBackupDownloads) {
     if (download.createdAt < cutoff) pendingBackupDownloads.delete(downloadId);
+  }
+  for (const [uploadId, upload] of pendingArchiveUploads) {
+    if (upload.createdAt < cutoff) pendingArchiveUploads.delete(uploadId);
   }
 }
 
@@ -662,6 +705,222 @@ router.put("/google/backup/chunk", async (req, res) => {
   } catch (error) {
     if (error instanceof GoogleBackupError) return sendError(res, error.status, error.message);
     return sendError(res, 502, error instanceof Error ? error.message : "Backup Google Drive belum dapat disimpan.");
+  }
+});
+
+router.get("/google/backup/archive/info", async (req, res) => {
+  try {
+    const connection = await getAuthenticatedConnection(req);
+    if (!connection) return sendError(res, 401, "Sesi Google tidak ditemukan atau sudah kedaluwarsa.");
+    cleanupPendingBackupUploads();
+    const accessToken = await getAccessToken(connection);
+    const file = await findBackupArchiveFile(accessToken, connection.drive_file_id);
+    if (!file?.id) return sendError(res, 404, "Backup Kasir Miso belum tersedia di Google Drive.");
+    await updateDriveFileId(connection.device_id, file.id);
+    return res.json({
+      modifiedTime: file.modifiedTime ?? null,
+      size: Number(file.size ?? 0),
+      name: file.name ?? BACKUP_ARCHIVE_FILE_NAME,
+    });
+  } catch (error) {
+    return sendError(res, 502, error instanceof Error ? error.message : "Status backup Google Drive belum dapat diperiksa.");
+  }
+});
+
+router.get("/google/backup/archive", async (req, res) => {
+  try {
+    const connection = await getAuthenticatedConnection(req);
+    if (!connection) return sendError(res, 401, "Sesi Google tidak ditemukan atau sudah kedaluwarsa.");
+    const accessToken = await getAccessToken(connection);
+    const file = await findBackupArchiveFile(accessToken, connection.drive_file_id);
+    if (!file?.id) return sendError(res, 404, "Backup Kasir Miso belum tersedia di Google Drive.");
+    await updateDriveFileId(connection.device_id, file.id);
+    const response = await fetchGoogle(
+      `${GOOGLE_FILES_URL}/${encodeURIComponent(file.id)}?alt=media`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!response.ok || !response.body) {
+      return sendError(res, response.status || 502, "Backup Google Drive belum dapat diunduh.");
+    }
+
+    res.status(200);
+    res.setHeader("Content-Type", "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${BACKUP_ARCHIVE_FILE_NAME}"`);
+    const contentLength = response.headers.get("content-length");
+    if (contentLength) res.setHeader("Content-Length", contentLength);
+    const stream = Readable.fromWeb(response.body as import("node:stream/web").ReadableStream<Uint8Array>);
+    stream.on("error", () => res.destroy());
+    stream.pipe(res);
+    return;
+  } catch (error) {
+    if (res.headersSent) return res.destroy();
+    return sendError(res, 502, error instanceof Error ? error.message : "Backup Google Drive belum dapat diunduh.");
+  }
+});
+
+router.post("/google/backup/archive", async (req, res) => {
+  try {
+    const connection = await getAuthenticatedConnection(req);
+    if (!connection) return sendError(res, 401, "Sesi Google tidak ditemukan atau sudah kedaluwarsa.");
+
+    const { totalBytes, expectedModifiedTime } = req.body as Record<string, unknown>;
+    if (
+      !Number.isSafeInteger(totalBytes)
+      || (totalBytes as number) < 1
+      || (totalBytes as number) > BACKUP_ARCHIVE_MAX_BYTES
+      || (expectedModifiedTime !== null && typeof expectedModifiedTime !== "string")
+    ) {
+      return sendError(res, 400, "Ukuran atau versi backup ZIP tidak valid.");
+    }
+
+    cleanupPendingBackupUploads();
+    const accessToken = await getAccessToken(connection);
+    const file = await findBackupArchiveFile(accessToken, connection.drive_file_id);
+    if (
+      file?.modifiedTime
+      && expectedModifiedTime
+      && file.modifiedTime !== expectedModifiedTime
+    ) {
+      return sendError(res, 409, "Backup Google Drive lebih baru ditemukan dari perangkat lain.");
+    }
+
+    const chunkSize = BACKUP_ARCHIVE_CHUNK_BYTES;
+    const totalChunks = Math.ceil((totalBytes as number) / chunkSize);
+    const uploadUrl = file?.id
+      ? `${GOOGLE_UPLOAD_URL}/${encodeURIComponent(file.id)}?uploadType=resumable&fields=id,modifiedTime`
+      : `${GOOGLE_UPLOAD_URL}?uploadType=resumable&fields=id,modifiedTime`;
+    const metadata = JSON.stringify({
+      name: BACKUP_ARCHIVE_FILE_NAME,
+      mimeType: "application/zip",
+    });
+    const startResponse = await fetchGoogle(uploadUrl, {
+      method: file?.id ? "PATCH" : "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": "application/zip",
+        "X-Upload-Content-Length": String(totalBytes),
+      },
+      body: metadata,
+    });
+    if (!startResponse.ok) {
+      return sendError(res, startResponse.status, "Sesi upload backup ZIP ke Google Drive belum dapat dibuat.");
+    }
+    const sessionUrl = startResponse.headers.get("location");
+    if (!sessionUrl) {
+      return sendError(res, 502, "Google Drive tidak mengembalikan sesi upload untuk backup ZIP.");
+    }
+
+    const uploadId = `archive-${randomBytes(16).toString("hex")}`;
+    pendingArchiveUploads.set(`${connection.device_id}:${uploadId}`, {
+      deviceId: connection.device_id,
+      sessionUrl,
+      accessToken,
+      fileId: file?.id ?? null,
+      totalBytes: totalBytes as number,
+      totalChunks,
+      expectedModifiedTime: typeof expectedModifiedTime === "string" ? expectedModifiedTime : null,
+      nextChunkIndex: 0,
+      createdAt: Date.now(),
+    });
+    return res.json({ uploadId, chunkSize, totalChunks });
+  } catch (error) {
+    if (error instanceof GoogleBackupError) return sendError(res, error.status, error.message);
+    return sendError(res, 502, error instanceof Error ? error.message : "Sesi upload backup ZIP belum dapat dibuat.");
+  }
+});
+
+router.put("/google/backup/archive/:uploadId", async (req, res) => {
+  try {
+    const connection = await getAuthenticatedConnection(req);
+    if (!connection) return sendError(res, 401, "Sesi Google tidak ditemukan atau sudah kedaluwarsa.");
+    cleanupPendingBackupUploads();
+
+    const uploadId = req.params.uploadId;
+    const key = `${connection.device_id}:${uploadId}`;
+    const upload = pendingArchiveUploads.get(key);
+    if (!upload || upload.deviceId !== connection.device_id) {
+      return sendError(res, 404, "Sesi upload backup ZIP sudah tidak berlaku. Mulai backup lagi.");
+    }
+
+    const chunkIndex = Number(req.get("X-Backup-Chunk-Index"));
+    const totalChunks = Number(req.get("X-Backup-Chunk-Total"));
+    const content = req.body;
+    if (
+      !Number.isInteger(chunkIndex)
+      || !Number.isInteger(totalChunks)
+      || totalChunks !== upload.totalChunks
+      || chunkIndex < 0
+      || chunkIndex >= upload.totalChunks
+      || !Buffer.isBuffer(content)
+      || content.byteLength < 1
+      || content.byteLength > BACKUP_ARCHIVE_CHUNK_BYTES
+    ) {
+      return sendError(res, 400, "Potongan file backup ZIP tidak valid.");
+    }
+
+    if (upload.result) return res.json(upload.result);
+    if (chunkIndex < upload.nextChunkIndex) {
+      return res.status(202).json({ complete: false, nextChunkIndex: upload.nextChunkIndex });
+    }
+    if (chunkIndex !== upload.nextChunkIndex) {
+      return sendError(res, 409, "Urutan potongan backup ZIP tidak sesuai. Ulangi backup dari awal.");
+    }
+
+    const start = chunkIndex * BACKUP_ARCHIVE_CHUNK_BYTES;
+    const end = start + content.byteLength - 1;
+    const expectedChunkLength = Math.min(BACKUP_ARCHIVE_CHUNK_BYTES, upload.totalBytes - start);
+    if (content.byteLength !== expectedChunkLength || end >= upload.totalBytes) {
+      return sendError(res, 400, "Ukuran potongan backup ZIP tidak sesuai.");
+    }
+
+    const driveResponse = await fetchGoogle(upload.sessionUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${upload.accessToken}`,
+        "Content-Type": "application/zip",
+        "Content-Length": String(content.byteLength),
+        "Content-Range": `bytes ${start}-${end}/${upload.totalBytes}`,
+      },
+      body: content,
+    });
+
+    if (driveResponse.status === 308) {
+      upload.nextChunkIndex += 1;
+      return res.status(202).json({ complete: false, nextChunkIndex: upload.nextChunkIndex });
+    }
+    if (!driveResponse.ok) {
+      return sendError(res, 502, "Google Drive belum menerima potongan backup ZIP. Coba lagi.");
+    }
+
+    const completedFile = (await driveResponse.json()) as GoogleFile;
+    const completedFileId = completedFile.id ?? upload.fileId;
+    if (!completedFileId) {
+      return sendError(res, 502, "Google Drive selesai menerima file, tetapi ID backup tidak tersedia.");
+    }
+
+    let modifiedTime = completedFile.modifiedTime;
+    if (!modifiedTime) {
+      const metadataResponse = await fetchGoogle(
+        `${GOOGLE_FILES_URL}/${encodeURIComponent(completedFileId)}?fields=id,modifiedTime`,
+        { headers: { Authorization: `Bearer ${upload.accessToken}` } },
+      );
+      if (metadataResponse.ok) {
+        const metadata = (await metadataResponse.json()) as GoogleFile;
+        modifiedTime = metadata.modifiedTime;
+      }
+    }
+    if (!modifiedTime) {
+      return sendError(res, 502, "Backup ZIP tersimpan, tetapi waktu perubahannya belum dapat dikonfirmasi.");
+    }
+
+    await updateDriveFileId(connection.device_id, completedFileId);
+    upload.result = { modifiedTime };
+    upload.nextChunkIndex = upload.totalChunks;
+    return res.json(upload.result);
+  } catch (error) {
+    if (error instanceof GoogleBackupError) return sendError(res, error.status, error.message);
+    return sendError(res, 502, error instanceof Error ? error.message : "Backup ZIP Google Drive belum berhasil.");
   }
 });
 

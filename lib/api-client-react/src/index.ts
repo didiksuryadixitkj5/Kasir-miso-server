@@ -35,6 +35,105 @@ export type GoogleDriveUploadResult = {
   modifiedTime: string;
 };
 
+export type GoogleDriveArchiveInfo = {
+  modifiedTime: string | null;
+  size: number;
+  name: string;
+};
+
+export type GoogleDriveArchiveUploadResult = {
+  modifiedTime: string;
+};
+
+export async function getGoogleDriveArchiveInfo(
+  options?: GoogleRequestOptions,
+): Promise<GoogleDriveArchiveInfo> {
+  return customFetch<GoogleDriveArchiveInfo>("/api/google/backup/archive/info", {
+    ...options,
+    method: "GET",
+    responseType: "json",
+  });
+}
+
+export async function downloadGoogleDriveArchive(
+  options?: GoogleRequestOptions,
+): Promise<Blob> {
+  return customFetch<Blob>("/api/google/backup/archive", {
+    ...options,
+    method: "GET",
+    responseType: "blob",
+  });
+}
+
+export async function uploadGoogleDriveArchive(
+  input: {
+    bytes: Uint8Array;
+    expectedModifiedTime: string | null;
+  },
+  options?: GoogleRequestOptions,
+): Promise<GoogleDriveArchiveUploadResult> {
+  const session = await customFetch<{
+    uploadId: string;
+    chunkSize: number;
+    totalChunks: number;
+  }>("/api/google/backup/archive", {
+    ...options,
+    method: "POST",
+    headers: new Headers(options?.headers),
+    body: JSON.stringify({
+      totalBytes: input.bytes.byteLength,
+      expectedModifiedTime: input.expectedModifiedTime,
+    }),
+    responseType: "json",
+  });
+  if (
+    !session.uploadId
+    || !Number.isInteger(session.chunkSize)
+    || session.chunkSize < 1
+    || !Number.isInteger(session.totalChunks)
+    || session.totalChunks < 1
+  ) {
+    throw new Error("Sesi upload backup ZIP tidak valid.");
+  }
+
+  let chunkIndex = 0;
+  let finalResult: GoogleDriveArchiveUploadResult | null = null;
+  while (chunkIndex < session.totalChunks) {
+    const start = chunkIndex * session.chunkSize;
+    const end = Math.min(start + session.chunkSize, input.bytes.byteLength);
+    const headers = new Headers(options?.headers);
+    headers.set("Content-Type", "application/octet-stream");
+    headers.set("X-Backup-Chunk-Index", String(chunkIndex));
+    headers.set("X-Backup-Chunk-Total", String(session.totalChunks));
+    const result = await customFetch<
+      GoogleDriveArchiveUploadResult | { complete: false; nextChunkIndex: number }
+    >(`/api/google/backup/archive/${encodeURIComponent(session.uploadId)}`, {
+      ...options,
+      method: "PUT",
+      headers,
+      body: input.bytes.slice(start, end) as unknown as BodyInit,
+      responseType: "json",
+    });
+
+    if ("modifiedTime" in result) {
+      finalResult = result;
+      break;
+    }
+    if (
+      result.complete !== false
+      || !Number.isInteger(result.nextChunkIndex)
+      || result.nextChunkIndex <= chunkIndex
+      || result.nextChunkIndex > session.totalChunks
+    ) {
+      throw new Error("Potongan backup ZIP tidak diterima sesuai urutan.");
+    }
+    chunkIndex = result.nextChunkIndex;
+  }
+
+  if (finalResult) return finalResult;
+  throw new Error("Backup ZIP Google Drive belum selesai diproses.");
+}
+
 export async function getGoogleConnection(
   options?: GoogleRequestOptions,
 ): Promise<GoogleConnection> {

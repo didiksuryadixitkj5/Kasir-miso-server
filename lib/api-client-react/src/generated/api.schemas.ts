@@ -9,3 +9,30 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface GoogleBackupArchiveInfo {
+  modifiedTime: string | null;
+  size: number;
+  name: string;
+}
+
+export interface GoogleBackupArchiveUploadRequest {
+  /** @minimum 1 */
+  totalBytes: number;
+  expectedModifiedTime: string | null;
+}
+
+export interface GoogleBackupArchiveUploadSession {
+  uploadId: string;
+  chunkSize: number;
+  totalChunks: number;
+}
+
+export interface GoogleBackupArchiveChunkResult {
+  complete: boolean;
+  nextChunkIndex: number;
+}
+
+export interface GoogleBackupArchiveUploadResult {
+  modifiedTime: string;
+}
+

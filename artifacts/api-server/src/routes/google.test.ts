@@ -91,6 +91,7 @@ const tokenResponses: Array<Record<string, unknown>> = [];
 const userinfoResponses: Array<Record<string, unknown>> = [];
 const driveRequests: string[] = [];
 const driveUploadBodies: Array<{ method: string; url: string; body: string }> = [];
+const archiveUploadBodies: Array<{ contentRange: string; byteLength: number }> = [];
 let listedBackupFile: DriveFile | DriveFile[] | null | undefined;
 let updatedBackupFile: DriveFile = {
   id: "drive-file-b",
@@ -124,6 +125,32 @@ const googleFetch = vi.fn(async (input: string | URL | Request, init?: RequestIn
     return jsonResponse(userinfoResponses.shift() ?? {});
   }
   driveRequests.push(url);
+  if (url.includes("uploadType=resumable")) {
+    return new Response(null, {
+      status: 200,
+      headers: { location: "https://upload.googleapis.com/session/archive-test" },
+    });
+  }
+  if (url.startsWith("https://upload.googleapis.com/session/")) {
+    const headers = new Headers(init?.headers);
+    const contentRange = headers.get("content-range") ?? "";
+    const match = contentRange.match(/^bytes (\d+)-(\d+)\/(\d+)$/);
+    const body = init?.body;
+    const byteLength = body instanceof Uint8Array ? body.byteLength : 0;
+    archiveUploadBodies.push({ contentRange, byteLength });
+    if (!match) return jsonResponse({ message: "missing range" }, 400);
+    const [, , end, total] = match;
+    if (Number(end) + 1 < Number(total)) {
+      return new Response(null, {
+        status: 308,
+        headers: { Range: `bytes=0-${end}` },
+      });
+    }
+    return jsonResponse({
+      id: "drive-file-created",
+      modifiedTime: "2026-10-21T10:00:00.000Z",
+    });
+  }
   if (url.startsWith("https://www.googleapis.com/upload/drive/v3/files/")) {
     driveUploadBodies.push({
       method,
@@ -215,6 +242,7 @@ describe("Google connection account isolation", () => {
     userinfoResponses.length = 0;
     driveRequests.length = 0;
     driveUploadBodies.length = 0;
+    archiveUploadBodies.length = 0;
     listedBackupFile = undefined;
     updatedBackupFile = {
       id: "drive-file-b",
@@ -606,6 +634,107 @@ describe("Google backup upload persistence", () => {
       message: "Backup Kasir Miso belum tersedia di Google Drive.",
     });
     expect(driveRequests.some((url) => url.includes("?alt=media"))).toBe(false);
+  });
+});
+
+describe("Google ZIP backup transfer", () => {
+  beforeEach(() => {
+    process.env.SESSION_SECRET = "test-session-secret";
+    process.env.GOOGLE_OAUTH_CLIENT_IDS = clientId;
+    connection = null;
+    session = null;
+    query.mockClear();
+    googleFetch.mockClear();
+    tokenResponses.length = 0;
+    userinfoResponses.length = 0;
+    driveRequests.length = 0;
+    driveUploadBodies.length = 0;
+    archiveUploadBodies.length = 0;
+    listedBackupFile = null;
+    updatedBackupFile = {
+      id: "drive-file-existing",
+      name: "Kasir Miso Backup.zip",
+      modifiedTime: "2026-10-20T10:00:00.000Z",
+      size: "7",
+    };
+    backupFileLookupResponseStatus = 200;
+    backupSearchResponseStatus = 200;
+    tokenResponses.push({ access_token: "access-drive" });
+    vi.stubGlobal("fetch", googleFetch);
+  });
+
+  it("forwards bounded binary chunks to a resumable Drive upload", async () => {
+    const sessionToken = await createValidGoogleSession();
+    const totalBytes = 300_000;
+    const start = await apiRequest("/google/backup/archive", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ totalBytes, expectedModifiedTime: null }),
+    });
+
+    expect(start.status).toBe(200);
+    const upload = await start.json() as { uploadId: string; chunkSize: number; totalChunks: number };
+    expect(upload).toMatchObject({ chunkSize: 256 * 1024, totalChunks: 2 });
+
+    const first = new Uint8Array(upload.chunkSize).fill(7);
+    const firstResponse = await apiRequest(`/google/backup/archive/${upload.uploadId}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "Content-Type": "application/octet-stream",
+        "X-Backup-Chunk-Index": "0",
+        "X-Backup-Chunk-Total": "2",
+      },
+      body: first,
+    });
+    expect(firstResponse.status).toBe(202);
+    await expect(firstResponse.json()).resolves.toEqual({ complete: false, nextChunkIndex: 1 });
+
+    const last = new Uint8Array(totalBytes - first.byteLength).fill(9);
+    const lastResponse = await apiRequest(`/google/backup/archive/${upload.uploadId}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "Content-Type": "application/octet-stream",
+        "X-Backup-Chunk-Index": "1",
+        "X-Backup-Chunk-Total": "2",
+      },
+      body: last,
+    });
+
+    expect(lastResponse.status).toBe(200);
+    await expect(lastResponse.json()).resolves.toEqual({
+      modifiedTime: "2026-10-21T10:00:00.000Z",
+    });
+    expect(archiveUploadBodies).toEqual([
+      { contentRange: "bytes 0-262143/300000", byteLength: 262144 },
+      { contentRange: "bytes 262144-299999/300000", byteLength: 37856 },
+    ]);
+    expect(connection?.drive_file_id).toBe("drive-file-created");
+  });
+
+  it("streams the Drive backup bytes back to the restoring client", async () => {
+    const sessionToken = await createValidGoogleSession();
+    connection!.drive_file_id = "drive-file-existing";
+    downloadedBackupContent = "PK\u0003\u0004test-zip-bytes";
+    tokenResponses.push({ access_token: "access-drive" });
+
+    const response = await apiRequest("/google/backup/archive", {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("application/octet-stream");
+    expect(new TextDecoder().decode(await response.arrayBuffer())).toBe(downloadedBackupContent);
   });
 });
 

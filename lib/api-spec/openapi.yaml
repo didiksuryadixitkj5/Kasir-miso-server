@@ -24,6 +24,89 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /google/backup/archive/info:
+    get:
+      operationId: getGoogleBackupArchiveInfo
+      tags: [google-backup]
+      summary: Get Google Drive backup metadata
+      responses:
+        "200":
+          description: Current backup metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleBackupArchiveInfo"
+  /google/backup/archive:
+    get:
+      operationId: downloadGoogleBackupArchive
+      tags: [google-backup]
+      summary: Download the current Google Drive backup archive
+      responses:
+        "200":
+          description: Backup file bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+    post:
+      operationId: startGoogleBackupArchiveUpload
+      tags: [google-backup]
+      summary: Start a resumable Google Drive backup upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleBackupArchiveUploadRequest"
+      responses:
+        "200":
+          description: Upload session started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleBackupArchiveUploadSession"
+  /google/backup/archive/{uploadId}:
+    put:
+      operationId: uploadGoogleBackupArchiveChunk
+      tags: [google-backup]
+      summary: Send the next binary chunk to a resumable Google Drive upload
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: X-Backup-Chunk-Index
+          in: header
+          required: true
+          schema:
+            type: number
+        - name: X-Backup-Chunk-Total
+          in: header
+          required: true
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Upload completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleBackupArchiveUploadResult"
+        "202":
+          description: Chunk accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleBackupArchiveChunkResult"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +116,49 @@ components:
           type: string
       required:
         - status
+    GoogleBackupArchiveInfo:
+      type: object
+      properties:
+        modifiedTime:
+          type: string
+          nullable: true
+        size:
+          type: number
+        name:
+          type: string
+      required: [modifiedTime, size, name]
+    GoogleBackupArchiveUploadRequest:
+      type: object
+      properties:
+        totalBytes:
+          type: number
+          minimum: 1
+        expectedModifiedTime:
+          type: string
+          nullable: true
+      required: [totalBytes, expectedModifiedTime]
+    GoogleBackupArchiveUploadSession:
+      type: object
+      properties:
+        uploadId:
+          type: string
+        chunkSize:
+          type: number
+        totalChunks:
+          type: number
+      required: [uploadId, chunkSize, totalChunks]
+    GoogleBackupArchiveChunkResult:
+      type: object
+      properties:
+        complete:
+          type: boolean
+        nextChunkIndex:
+          type: number
+      required: [complete, nextChunkIndex]
+    GoogleBackupArchiveUploadResult:
+      type: object
+      properties:
+        modifiedTime:
+          type: string
+      required: [modifiedTime]
 

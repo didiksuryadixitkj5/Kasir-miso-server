@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { reloadAppAsync } from 'expo';
+import { strFromU8 } from 'fflate';
 import { ApiError } from '@workspace/api-client-react';
 import { useGoogleAccount } from '@/context/GoogleAccountContext';
 import { useNotes } from '@/context/NotesContext';
@@ -11,6 +12,10 @@ import {
   parseStoredBackup,
   type StoredBackup,
 } from '@/utils/backupEnvelope';
+import {
+  createBackupArchive,
+  restoreBackupArchive,
+} from '@/utils/backupArchive';
 import {
   accountMetadataKey,
   GOOGLE_SESSION_TOKEN_KEY,
@@ -99,8 +104,9 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
     email: accountEmail,
     connectionGeneration,
     hasDriveAccess,
-    uploadDriveBackup,
-    downloadDriveBackup,
+    getDriveArchiveInfo,
+    uploadDriveArchive,
+    downloadDriveArchive,
   } = useGoogleAccount();
   const warung = useWarung();
   const notesContext = useNotes();
@@ -165,9 +171,9 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
       const knownRevision = readRemoteRevision(await AsyncStorage.getItem(
         accountMetadataKey(REMOTE_REVISION_KEY, accountEmail),
       ));
-      let remote: Awaited<ReturnType<typeof downloadDriveBackup>> | null = null;
+      let remote: Awaited<ReturnType<typeof getDriveArchiveInfo>> | null = null;
       try {
-        remote = await downloadDriveBackup();
+        remote = await getDriveArchiveInfo();
       } catch (reason) {
         if (!(reason instanceof ApiError && reason.status === 404)) throw reason;
       }
@@ -177,7 +183,8 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
         );
       }
       const backup = await collectBackup();
-      const uploaded = await uploadDriveBackup(JSON.stringify(backup), remote?.modifiedTime ?? null);
+      const archive = await createBackupArchive(JSON.stringify(backup), 'online', backup.createdAt);
+      const uploaded = await uploadDriveArchive(archive, remote?.modifiedTime ?? null);
       await saveRemoteRevision(backup, uploaded.modifiedTime, accountEmail);
       await AsyncStorage.setItem(
         accountMetadataKey(LAST_BACKUP_KEY, accountEmail),
@@ -198,15 +205,25 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
         setTimeout(() => void runBackup().catch(() => undefined), 500);
       }
     }
-  }, [accountEmail, downloadDriveBackup, hasDriveAccess, uploadDriveBackup]);
+  }, [accountEmail, getDriveArchiveInfo, hasDriveAccess, uploadDriveArchive]);
 
   const restoreLatest = useCallback(async () => {
     if (!hasDriveAccess) throw new Error('Hubungkan akun Google Drive terlebih dahulu.');
     setStatus('restoring');
     setError('');
     try {
-      const downloaded = await downloadDriveBackup();
-      const backup = await parseStoredBackup(downloaded.content, isBackupDataKey);
+      const downloaded = await downloadDriveArchive();
+      const isZip = downloaded.bytes[0] === 0x50 && downloaded.bytes[1] === 0x4b;
+      const archive = isZip ? restoreBackupArchive(downloaded.bytes, 'online') : null;
+      const backup = await parseStoredBackup(
+        archive?.payload ?? strFromU8(downloaded.bytes),
+        isBackupDataKey,
+      );
+      if (archive) {
+        for (const [key, value] of Object.entries(backup.storage)) {
+          backup.storage[key] = archive.restoreImageReferences(value);
+        }
+      }
       const currentKeys = (await AsyncStorage.getAllKeys()).filter(isBackupDataKey);
       const originalEntries = await AsyncStorage.multiGet(currentKeys);
       const lastBackupKey = accountMetadataKey(LAST_BACKUP_KEY, accountEmail);
@@ -280,7 +297,7 @@ export function OnlineBackupProvider({ children }: { children: React.ReactNode }
       setStatus('error');
       throw reason;
     }
-  }, [accountEmail, downloadDriveBackup, hasDriveAccess]);
+  }, [accountEmail, downloadDriveArchive, hasDriveAccess]);
 
   const currentAccountKey = connectionGeneration > 0 && accountEmail
     ? `${connectionGeneration}:${accountEmail.trim().toLowerCase()}`

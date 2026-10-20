@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Alert, BackHandler, Image, Modal, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Alert, BackHandler, Image, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { reloadAppAsync } from 'expo';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+import { strFromU8 } from 'fflate';
 import { useRouter } from 'expo-router';
 import { PageHeader, Screen, Surface } from '@/components/WarungUI';
 import { useColors } from '@/hooks/useColors';
@@ -13,9 +16,16 @@ import { useWarung } from '@/context/WarungContext';
 import { useGoogleAccount } from '@/context/GoogleAccountContext';
 import { useOnlineBackup } from '@/context/OnlineBackupContext';
 import { createOfflineBackup, parseOfflineBackup, type OfflineBackupEnvelope } from '@/utils/backupEnvelope';
+import {
+  backupBase64ToBytes,
+  backupBytesToBase64,
+  createBackupArchive,
+  restoreBackupArchive,
+} from '@/utils/backupArchive';
 import { persistImageAsset } from '@/utils/persistentImage';
 
 const OFFLINE_BACKUP_KEY = 'warung-offline-backup-v1';
+const OFFLINE_BACKUP_URI_KEY = 'warung-offline-backup-uri-v2';
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
 const formatBackupTime = (value: string) => {
@@ -181,26 +191,44 @@ export default function OtherScreen() {
     setIsBackingUp(true);
     try {
       const backup = createBackup();
-      const backupJson = JSON.stringify(backup);
-      await AsyncStorage.setItem(OFFLINE_BACKUP_KEY, backupJson);
+      const archive = await createBackupArchive(
+        JSON.stringify(backup),
+        'offline',
+        backup.createdAt,
+      );
 
       if (Platform.OS === 'web') {
-        const blob = new Blob([backupJson], { type: 'application/json;charset=utf-8' });
+        const blob = new Blob(
+          [archive.buffer.slice(archive.byteOffset, archive.byteOffset + archive.byteLength) as ArrayBuffer],
+          { type: 'application/zip' },
+        );
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement('a');
         anchor.href = url;
-        anchor.download = `kasir-miso-backup-${backup.createdAt.slice(0, 10)}.json`;
+        anchor.download = `kasir-miso-backup-${backup.createdAt.slice(0, 10)}.zip`;
         document.body.appendChild(anchor);
         anchor.click();
         document.body.removeChild(anchor);
         URL.revokeObjectURL(url);
-        setNotice('Backup offline tersimpan dan file JSON sudah diunduh.');
+        await AsyncStorage.removeItem(OFFLINE_BACKUP_KEY);
+        setNotice('Backup offline ZIP berhasil diunduh.');
       } else {
-        await Share.share({
-          title: 'Backup Kasir Miso',
-          message: 'Backup offline tersimpan di perangkat. Simpan file ini jika ingin memindahkannya.',
+        const fileUri = new File(
+          Paths.document,
+          `kasir-miso-backup-${backup.createdAt.slice(0, 10)}.zip`,
+        ).uri;
+        await FileSystem.writeAsStringAsync(fileUri, backupBytesToBase64(archive), {
+          encoding: 'base64',
         });
-        setNotice('Backup offline tersimpan di perangkat.');
+        await AsyncStorage.setItem(OFFLINE_BACKUP_URI_KEY, fileUri);
+        await AsyncStorage.removeItem(OFFLINE_BACKUP_KEY);
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'application/zip',
+            dialogTitle: 'Simpan backup Kasir Miso',
+          });
+        }
+        setNotice('Backup offline ZIP berhasil dibuat dan tersimpan di perangkat.');
       }
     } catch {
       setNotice('Backup offline belum berhasil. Coba lagi.');
@@ -245,9 +273,21 @@ export default function OtherScreen() {
   const handleOfflineRestore = async () => {
     if (isRestoringOffline) return;
     try {
+      const fileUri = await AsyncStorage.getItem(OFFLINE_BACKUP_URI_KEY);
+      if (fileUri) {
+        const base64 = await FileSystem.readAsStringAsync(fileUri, {
+          encoding: 'base64',
+        });
+        const archive = restoreBackupArchive(backupBase64ToBytes(base64), 'offline');
+        requestOfflineRestore(
+          parseOfflineBackup(archive.restoreImageReferences(archive.payload)),
+          'perangkat',
+        );
+        return;
+      }
       const raw = await AsyncStorage.getItem(OFFLINE_BACKUP_KEY);
       if (!raw) {
-        setNotice('Belum ada cadangan offline di perangkat ini. Buat Backup Offline terlebih dahulu.');
+        setNotice('Belum ada backup offline di perangkat ini. Pulihkan dari file ZIP yang sudah disimpan.');
         return;
       }
       requestOfflineRestore(parseOfflineBackup(raw), 'perangkat');
@@ -260,17 +300,28 @@ export default function OtherScreen() {
     if (isRestoringOffline) return;
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: 'application/json',
+        type: ['application/zip', 'application/json'],
         copyToCacheDirectory: true,
         multiple: false,
       });
       if (result.canceled || !result.assets[0]) return;
 
       const asset = result.assets[0];
-      const raw = Platform.OS === 'web' && asset.file
-        ? await asset.file.text()
-        : await FileSystem.readAsStringAsync(asset.uri, { encoding: 'utf8' });
-      requestOfflineRestore(parseOfflineBackup(raw), `file "${asset.name}"`);
+      const bytes = Platform.OS === 'web' && asset.file
+        ? new Uint8Array(await asset.file.arrayBuffer())
+        : backupBase64ToBytes(await FileSystem.readAsStringAsync(asset.uri, {
+          encoding: 'base64',
+        }));
+      const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
+      if (isZip) {
+        const archive = restoreBackupArchive(bytes, 'offline');
+        requestOfflineRestore(
+          parseOfflineBackup(archive.restoreImageReferences(archive.payload)),
+          `file "${asset.name}"`,
+        );
+      } else {
+        requestOfflineRestore(parseOfflineBackup(strFromU8(bytes)), `file "${asset.name}"`);
+      }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'File backup tidak bisa dibaca.');
     }
@@ -525,7 +576,7 @@ export default function OtherScreen() {
         <MenuRow
           icon="folder-open-outline"
           label="Pulihkan dari File"
-          detail="Pilih backup JSON dari perangkat lain"
+          detail="Pilih file ZIP atau backup JSON lama dari perangkat lain"
           testID="offline-file-restore-button"
           disabled={isRestoringOffline}
           onPress={() => void handleFileOfflineRestore()}

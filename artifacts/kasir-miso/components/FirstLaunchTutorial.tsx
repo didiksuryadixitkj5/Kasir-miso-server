@@ -60,7 +60,7 @@ const steps: TutorialStep[] = [
     eyebrow: 'LANGKAH 4',
     title: 'Jaga data tetap aman',
     body: 'Tekan tombol Lainnya untuk membuka Backup, Google Drive, QRIS, dan Arus Kas.',
-    points: ['Backup bisa disimpan sebagai file JSON', 'Restore memeriksa data sebelum diterapkan', 'Backup online mendeteksi konflik perangkat'],
+    points: ['Backup offline tersimpan sebagai satu file ZIP', 'Restore memeriksa data sebelum diterapkan', 'Backup online mendeteksi konflik perangkat'],
     targetLabel: 'Lainnya',
     targetRoute: '/other',
   },

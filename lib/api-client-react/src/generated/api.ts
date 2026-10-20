@@ -6,21 +6,30 @@
  * OpenAPI spec version: 0.1.0
  */
 import {
+  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
 
 import type {
+  GoogleBackupArchiveChunkResult,
+  GoogleBackupArchiveInfo,
+  GoogleBackupArchiveUploadRequest,
+  GoogleBackupArchiveUploadResult,
+  GoogleBackupArchiveUploadSession,
   HealthStatus
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
-import type { ErrorType } from '../custom-fetch';
+import type { ErrorType , BodyType } from '../custom-fetch';
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -123,4 +132,301 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
+
+export const getGetGoogleBackupArchiveInfoUrl = () => {
+
+
+
+
+  return `/api/google/backup/archive/info`
+}
+
+/**
+ * @summary Get Google Drive backup metadata
+ */
+export const getGoogleBackupArchiveInfo = async ( options?: Parameters<typeof customFetch>[1]): Promise<GoogleBackupArchiveInfo> => {
+
+  return customFetch<GoogleBackupArchiveInfo>(getGetGoogleBackupArchiveInfoUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetGoogleBackupArchiveInfoQueryKey = () => {
+    return [
+    `/api/google/backup/archive/info`
+    ] as const;
+    }
+
+
+export const getGetGoogleBackupArchiveInfoQueryOptions = <TData = Awaited<ReturnType<typeof getGoogleBackupArchiveInfo>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGoogleBackupArchiveInfo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetGoogleBackupArchiveInfoQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getGoogleBackupArchiveInfo>>> = ({ signal }) => getGoogleBackupArchiveInfo({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getGoogleBackupArchiveInfo>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetGoogleBackupArchiveInfoQueryResult = NonNullable<Awaited<ReturnType<typeof getGoogleBackupArchiveInfo>>>
+export type GetGoogleBackupArchiveInfoQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get Google Drive backup metadata
+ */
+
+export function useGetGoogleBackupArchiveInfo<TData = Awaited<ReturnType<typeof getGoogleBackupArchiveInfo>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getGoogleBackupArchiveInfo>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetGoogleBackupArchiveInfoQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDownloadGoogleBackupArchiveUrl = () => {
+
+
+
+
+  return `/api/google/backup/archive`
+}
+
+/**
+ * @summary Download the current Google Drive backup archive
+ */
+export const downloadGoogleBackupArchive = async ( options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getDownloadGoogleBackupArchiveUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getDownloadGoogleBackupArchiveQueryKey = () => {
+    return [
+    `/api/google/backup/archive`
+    ] as const;
+    }
+
+
+export const getDownloadGoogleBackupArchiveQueryOptions = <TData = Awaited<ReturnType<typeof downloadGoogleBackupArchive>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadGoogleBackupArchive>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDownloadGoogleBackupArchiveQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof downloadGoogleBackupArchive>>> = ({ signal }) => downloadGoogleBackupArchive({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof downloadGoogleBackupArchive>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type DownloadGoogleBackupArchiveQueryResult = NonNullable<Awaited<ReturnType<typeof downloadGoogleBackupArchive>>>
+export type DownloadGoogleBackupArchiveQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Download the current Google Drive backup archive
+ */
+
+export function useDownloadGoogleBackupArchive<TData = Awaited<ReturnType<typeof downloadGoogleBackupArchive>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof downloadGoogleBackupArchive>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getDownloadGoogleBackupArchiveQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getStartGoogleBackupArchiveUploadUrl = () => {
+
+
+
+
+  return `/api/google/backup/archive`
+}
+
+/**
+ * @summary Start a resumable Google Drive backup upload
+ */
+export const startGoogleBackupArchiveUpload = async (googleBackupArchiveUploadRequest: GoogleBackupArchiveUploadRequest, options?: Parameters<typeof customFetch>[1]): Promise<GoogleBackupArchiveUploadSession> => {
+
+  return customFetch<GoogleBackupArchiveUploadSession>(getStartGoogleBackupArchiveUploadUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(googleBackupArchiveUploadRequest)
+  }
+);}
+
+
+
+
+
+export const getStartGoogleBackupArchiveUploadMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startGoogleBackupArchiveUpload>>, TError,{data: BodyType<GoogleBackupArchiveUploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startGoogleBackupArchiveUpload>>, TError,{data: BodyType<GoogleBackupArchiveUploadRequest>}, TContext> => {
+
+const mutationKey = ['startGoogleBackupArchiveUpload'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startGoogleBackupArchiveUpload>>, {data: BodyType<GoogleBackupArchiveUploadRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  startGoogleBackupArchiveUpload(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartGoogleBackupArchiveUploadMutationResult = NonNullable<Awaited<ReturnType<typeof startGoogleBackupArchiveUpload>>>
+    export type StartGoogleBackupArchiveUploadMutationBody = BodyType<GoogleBackupArchiveUploadRequest>
+    export type StartGoogleBackupArchiveUploadMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Start a resumable Google Drive backup upload
+ */
+export const useStartGoogleBackupArchiveUpload = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startGoogleBackupArchiveUpload>>, TError,{data: BodyType<GoogleBackupArchiveUploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startGoogleBackupArchiveUpload>>,
+        TError,
+        {data: BodyType<GoogleBackupArchiveUploadRequest>},
+        TContext
+      > => {
+      return useMutation(getStartGoogleBackupArchiveUploadMutationOptions(options));
+    }
+
+export const getUploadGoogleBackupArchiveChunkUrl = (uploadId: string,) => {
+
+
+
+
+  return `/api/google/backup/archive/${uploadId}`
+}
+
+/**
+ * @summary Send the next binary chunk to a resumable Google Drive upload
+ */
+export const uploadGoogleBackupArchiveChunk = async (uploadId: string,
+    uploadGoogleBackupArchiveChunkBody: Blob, options?: Parameters<typeof customFetch>[1]): Promise<GoogleBackupArchiveUploadResult | GoogleBackupArchiveChunkResult> => {
+
+  return customFetch<GoogleBackupArchiveUploadResult | GoogleBackupArchiveChunkResult>(getUploadGoogleBackupArchiveChunkUrl(uploadId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
+    body: uploadGoogleBackupArchiveChunkBody
+  }
+);}
+
+
+
+
+
+export const getUploadGoogleBackupArchiveChunkMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadGoogleBackupArchiveChunk>>, TError,{uploadId: string;data: BodyType<Blob>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadGoogleBackupArchiveChunk>>, TError,{uploadId: string;data: BodyType<Blob>}, TContext> => {
+
+const mutationKey = ['uploadGoogleBackupArchiveChunk'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadGoogleBackupArchiveChunk>>, {uploadId: string;data: BodyType<Blob>}> = (props) => {
+          const {uploadId,data} = props ?? {};
+
+          return  uploadGoogleBackupArchiveChunk(uploadId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadGoogleBackupArchiveChunkMutationResult = NonNullable<Awaited<ReturnType<typeof uploadGoogleBackupArchiveChunk>>>
+    export type UploadGoogleBackupArchiveChunkMutationBody = BodyType<Blob>
+    export type UploadGoogleBackupArchiveChunkMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Send the next binary chunk to a resumable Google Drive upload
+ */
+export const useUploadGoogleBackupArchiveChunk = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadGoogleBackupArchiveChunk>>, TError,{uploadId: string;data: BodyType<Blob>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof uploadGoogleBackupArchiveChunk>>,
+        TError,
+        {uploadId: string;data: BodyType<Blob>},
+        TContext
+      > => {
+      return useMutation(getUploadGoogleBackupArchiveChunkMutationOptions(options));
+    }
 

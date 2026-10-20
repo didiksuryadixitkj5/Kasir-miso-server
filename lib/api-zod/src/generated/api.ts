@@ -17,3 +17,54 @@ export const HealthCheckResponse = zod.object({
 })
 
 
+/**
+ * @summary Get Google Drive backup metadata
+ */
+export const GetGoogleBackupArchiveInfoResponse = zod.object({
+  "modifiedTime": zod.string().nullable(),
+  "size": zod.number(),
+  "name": zod.string()
+})
+
+
+/**
+ * @summary Download the current Google Drive backup archive
+ */
+export const DownloadGoogleBackupArchiveResponse = zod.unknown()
+
+
+/**
+ * @summary Start a resumable Google Drive backup upload
+ */
+
+
+
+export const StartGoogleBackupArchiveUploadBody = zod.object({
+  "totalBytes": zod.number().min(1),
+  "expectedModifiedTime": zod.string().nullable()
+})
+
+export const StartGoogleBackupArchiveUploadResponse = zod.object({
+  "uploadId": zod.string(),
+  "chunkSize": zod.number(),
+  "totalChunks": zod.number()
+})
+
+
+/**
+ * @summary Send the next binary chunk to a resumable Google Drive upload
+ */
+export const UploadGoogleBackupArchiveChunkParams = zod.object({
+  "uploadId": zod.coerce.string()
+})
+
+export const UploadGoogleBackupArchiveChunkHeader = zod.object({
+  "X-Backup-Chunk-Index": zod.number(),
+  "X-Backup-Chunk-Total": zod.number()
+})
+
+export const UploadGoogleBackupArchiveChunkResponse = zod.object({
+  "modifiedTime": zod.string()
+})
+
+

@@ -10,9 +10,12 @@ import {
   ApiError,
   connectGoogleAccount,
   disconnectGoogleAccount,
+  downloadGoogleDriveArchive,
   downloadGoogleDriveBackup,
+  getGoogleDriveArchiveInfo,
   getGoogleConnection,
   setAuthTokenGetter,
+  uploadGoogleDriveArchive,
   uploadGoogleDriveBackup,
 } from '@workspace/api-client-react';
 import {
@@ -85,6 +88,9 @@ type GoogleAccountContextValue = {
   serverConfigured: boolean;
   uploadDriveBackup: (content: string, expectedModifiedTime: string | null) => Promise<{ modifiedTime: string }>;
   downloadDriveBackup: () => Promise<{ content: string; modifiedTime: string | null }>;
+  getDriveArchiveInfo: () => Promise<{ modifiedTime: string | null }>;
+  uploadDriveArchive: (bytes: Uint8Array, expectedModifiedTime: string | null) => Promise<{ modifiedTime: string }>;
+  downloadDriveArchive: () => Promise<{ bytes: Uint8Array; modifiedTime: string | null }>;
   logout: () => Promise<void>;
 };
 
@@ -399,6 +405,59 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     }
   }, [deviceId, handleDriveError, sessionToken]);
 
+  const getDriveArchiveInfo = useCallback(async () => {
+    if (!sessionToken || !deviceId) throw new Error('Hubungkan akun Google Drive terlebih dahulu.');
+    try {
+      const info = await withTransientDriveRetry(() => getGoogleDriveArchiveInfo({
+        headers: {
+          Authorization: `Bearer ${sessionToken}`,
+          'X-Device-ID': deviceId,
+        },
+      }));
+      return { modifiedTime: info.modifiedTime };
+    } catch (reason) {
+      return handleDriveError(reason);
+    }
+  }, [deviceId, handleDriveError, sessionToken]);
+
+  const uploadDriveArchive = useCallback(async (
+    bytes: Uint8Array,
+    expectedModifiedTime: string | null,
+  ) => {
+    if (!sessionToken || !deviceId) throw new Error('Hubungkan akun Google Drive terlebih dahulu.');
+    try {
+      return await withTransientDriveRetry(() => uploadGoogleDriveArchive(
+        { bytes, expectedModifiedTime },
+        {
+          headers: {
+            Authorization: `Bearer ${sessionToken}`,
+            'X-Device-ID': deviceId,
+          },
+        },
+      ));
+    } catch (reason) {
+      return handleDriveError(reason);
+    }
+  }, [deviceId, handleDriveError, sessionToken]);
+
+  const downloadDriveArchive = useCallback(async () => {
+    if (!sessionToken || !deviceId) throw new Error('Hubungkan akun Google Drive terlebih dahulu.');
+    try {
+      const headers = {
+        Authorization: `Bearer ${sessionToken}`,
+        'X-Device-ID': deviceId,
+      };
+      const info = await withTransientDriveRetry(() => getGoogleDriveArchiveInfo({ headers }));
+      const blob = await withTransientDriveRetry(() => downloadGoogleDriveArchive({ headers }));
+      return {
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+        modifiedTime: info.modifiedTime,
+      };
+    } catch (reason) {
+      return handleDriveError(reason);
+    }
+  }, [deviceId, handleDriveError, sessionToken]);
+
   const logout = useCallback(async () => {
     await logoutGoogleAccount({
       sessionToken,
@@ -441,12 +500,17 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     serverConfigured: googleServerConfigured,
     uploadDriveBackup,
     downloadDriveBackup,
+    getDriveArchiveInfo,
+    uploadDriveArchive,
+    downloadDriveArchive,
     logout,
   }), [
     authError,
     connectionGeneration,
     downloadDriveBackup,
+    downloadDriveArchive,
     email,
+    getDriveArchiveInfo,
     hydrated,
     isConnected,
     logout,
@@ -456,6 +520,7 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     saveGoogleClientIds,
     sessionToken,
     uploadDriveBackup,
+    uploadDriveArchive,
   ]);
 
   return <GoogleAccountContext.Provider value={value}>{children}</GoogleAccountContext.Provider>;
