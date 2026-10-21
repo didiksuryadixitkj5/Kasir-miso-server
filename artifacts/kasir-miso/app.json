@@ -48,16 +48,7 @@
       "typedRoutes": true,
       "reactCompiler": true
     },
-    "extra": {
-      "googleClientIds": {
-        "web": "553508307121-cj1jc7n5005r5e6bqh0gp9omeoucrdev.apps.googleusercontent.com",
-        "android": "553508307121-uk04mtntjliikejh3dinbprgin3mk0a8.apps.googleusercontent.com",
-        "ios": "553508307121-f0h23n5rj0jpmh5168cqt50umcj8dqid.apps.googleusercontent.com"
-      },
-      "eas": {
-        "projectId": "e5f461a4-0000-4cd5-b4f2-f0296c732490"
-      }
-    },
+    "extra": {},
     "owner": "ddksryd"
   }
 }
