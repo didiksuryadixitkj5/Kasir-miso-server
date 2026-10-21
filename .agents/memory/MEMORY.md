@@ -1,4 +1,4 @@
-- [Large backup uploads](backup-upload-size-limits.md) — public preview routing can reject large JSON bodies before Express; send oversized Drive backups in bounded chunks.
+- [ZIP backup transfers](backup-upload-size-limits.md) — keep image-heavy backups in one ZIP archive, but stream binary chunks to Drive instead of posting large JSON bodies.
 - [Generated API declarations](api-client-generated-declarations.md) — rebuild the shared API client declarations when artifact typechecks report missing exports that exist in source.
 - [Expo component tests](expo-vitest-harness.md) — Vitest needs a lightweight React Native/Expo mock harness before rendering screens in Node.
 - [Expo preview blank-screen safeguards](expo-preview-blank.md) — keep tests outside app routes and never let web font loading block the root render indefinitely.

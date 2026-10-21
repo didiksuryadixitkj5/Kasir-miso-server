@@ -659,12 +659,12 @@ describe("Google ZIP backup transfer", () => {
     };
     backupFileLookupResponseStatus = 200;
     backupSearchResponseStatus = 200;
-    tokenResponses.push({ access_token: "access-drive" });
     vi.stubGlobal("fetch", googleFetch);
   });
 
   it("forwards bounded binary chunks to a resumable Drive upload", async () => {
     const sessionToken = await createValidGoogleSession();
+    tokenResponses.push({ access_token: "access-drive" });
     const totalBytes = 300_000;
     const start = await apiRequest("/google/backup/archive", {
       method: "POST",

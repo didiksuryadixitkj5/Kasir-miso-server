@@ -1,13 +1,13 @@
 ---
-name: Large backup upload limits
-description: The public preview path can reject large backup requests before the API server receives them.
+name: ZIP backup transfer limits
+description: Keep image-heavy backups as one ZIP while protecting the API proxy and server from oversized JSON payloads.
 ---
 
-Large Google Drive backup payloads must be split into bounded requests before they cross the public preview or deployment proxy, both when uploading and restoring. Raising the Express JSON parser limit alone does not solve a proxy-level 413.
+Store image-heavy backups as one ZIP archive, but move the archive across the API boundary as bounded binary chunks and stream those chunks to Google Drive's resumable upload. Stream the archive back during restore instead of buffering it in a JSON response. Keep restore compatibility for legacy JSON backups.
 
-**Why:** Embedded QRIS and menu images can make an otherwise valid local backup exceed the upstream request-size limit, returning an HTML 413 before the API route can format a useful error.
+**Why:** Embedded images inflate Base64 JSON payloads and can hit proxy request limits before Express receives them. Server-side JSON assembly also duplicates large payloads in memory.
 
-**How to apply:** Route every client upload, including small backups, through bounded chunks comfortably below the proxy limit and assemble them server-side before the Drive upload. Restore through a short-lived server download session that returns bounded chunks, then join the chunks exactly on the client before parsing. Expire incomplete upload and download sessions.
+**How to apply:** Use bounded raw binary requests that satisfy the destination's resumable-upload chunk requirements; forward each chunk without assembling the full archive in server memory. Validate archive size and ZIP contents on restore, and retain support for older JSON archives.
 
 The Expo development workflow must override any stale `EXPO_PUBLIC_API_BASE_URL` so preview requests target the current API Server workflow. The production fallback remains separate for standalone builds.
 
