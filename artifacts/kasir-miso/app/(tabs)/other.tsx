@@ -550,7 +550,7 @@ export default function OtherScreen() {
         <MenuRow
           icon="download-outline"
           label="Backup Offline"
-          detail="Simpan salinan data di perangkat"
+          detail={Platform.OS === 'web' ? 'Unduh backup sebagai file ZIP' : 'Simpan backup sebagai file ZIP'}
           testID="offline-backup-button"
           disabled={isBackingUp}
           onPress={() => void handleOfflineBackup()}
@@ -559,19 +559,19 @@ export default function OtherScreen() {
         <MenuRow
           icon="refresh-circle-outline"
           label="Pulihkan Offline"
-          detail={isRestoringOffline ? 'Sedang memulihkan data...' : 'Kembalikan salinan terakhir di perangkat'}
+          detail={isRestoringOffline ? 'Sedang memulihkan data...' : 'Unggah file ZIP backup dari perangkat'}
           testID="offline-restore-button"
           disabled={isRestoringOffline}
-          onPress={() => void handleOfflineRestore()}
+          onPress={() => void handleFileOfflineRestore()}
         />
         <View style={[s.rowDivider, { backgroundColor: c.border }]} />
         <MenuRow
-          icon="folder-open-outline"
-          label="Pulihkan dari File"
-          detail="Pilih file ZIP atau backup JSON lama dari perangkat lain"
-          testID="offline-file-restore-button"
+          icon="refresh-outline"
+          label="Pulihkan salinan di perangkat"
+          detail={isRestoringOffline ? 'Sedang memulihkan data...' : 'Gunakan backup terakhir yang tersimpan di aplikasi'}
+          testID="offline-local-restore-button"
           disabled={isRestoringOffline}
-          onPress={() => void handleFileOfflineRestore()}
+          onPress={() => void handleOfflineRestore()}
         />
       </Surface>
 
