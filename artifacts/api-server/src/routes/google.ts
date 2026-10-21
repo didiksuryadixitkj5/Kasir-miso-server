@@ -78,6 +78,8 @@ type PendingBackupDownload = {
 
 type PendingArchiveUpload = {
   deviceId: string;
+  requestId: string;
+  uploadId: string;
   sessionUrl: string;
   accessToken: string;
   fileId: string | null;
@@ -354,7 +356,7 @@ async function updateDriveFileId(deviceId: string, fileId: string) {
   );
 }
 
-function cleanupPendingBackupUploads() {
+function cleanupPendingBackupUploads(activeArchiveUploadKey?: string) {
   const cutoff = Date.now() - BACKUP_CHUNK_TTL_MS;
   for (const [uploadId, upload] of pendingBackupUploads) {
     if (upload.createdAt < cutoff) pendingBackupUploads.delete(uploadId);
@@ -362,8 +364,10 @@ function cleanupPendingBackupUploads() {
   for (const [downloadId, download] of pendingBackupDownloads) {
     if (download.createdAt < cutoff) pendingBackupDownloads.delete(downloadId);
   }
-  for (const [uploadId, upload] of pendingArchiveUploads) {
-    if (upload.createdAt < cutoff) pendingArchiveUploads.delete(uploadId);
+  for (const [uploadKey, upload] of pendingArchiveUploads) {
+    if (uploadKey !== activeArchiveUploadKey && upload.createdAt < cutoff) {
+      pendingArchiveUploads.delete(uploadKey);
+    }
   }
 }
 
@@ -773,7 +777,35 @@ router.post("/google/backup/archive", async (req, res) => {
       return sendError(res, 400, "Ukuran atau versi backup ZIP tidak valid.");
     }
 
+    const requestId = req.get("X-Backup-Request-ID")?.trim();
+    if (!requestId || !/^[a-zA-Z0-9_-]{8,100}$/.test(requestId)) {
+      return sendError(res, 400, "ID permintaan backup ZIP tidak valid.");
+    }
+
     cleanupPendingBackupUploads();
+    const existingUpload = [...pendingArchiveUploads.values()].find(
+      (upload) => upload.deviceId === connection.device_id && upload.requestId === requestId,
+    );
+    const normalizedExpectedModifiedTime = typeof expectedModifiedTime === "string"
+      ? expectedModifiedTime
+      : null;
+    if (existingUpload) {
+      if (
+        existingUpload.totalBytes !== totalBytes
+        || existingUpload.expectedModifiedTime !== normalizedExpectedModifiedTime
+      ) {
+        return sendError(res, 409, "ID backup ZIP sudah digunakan untuk data yang berbeda.");
+      }
+      existingUpload.createdAt = Date.now();
+      if (existingUpload.result) return res.json(existingUpload.result);
+      return res.json({
+        uploadId: existingUpload.uploadId,
+        chunkSize: BACKUP_ARCHIVE_CHUNK_BYTES,
+        totalChunks: existingUpload.totalChunks,
+        nextChunkIndex: existingUpload.nextChunkIndex,
+      });
+    }
+
     const accessToken = await getAccessToken(connection);
     const file = await findBackupArchiveFile(accessToken, connection.drive_file_id);
     if (
@@ -814,6 +846,8 @@ router.post("/google/backup/archive", async (req, res) => {
     const uploadId = `archive-${randomBytes(16).toString("hex")}`;
     pendingArchiveUploads.set(`${connection.device_id}:${uploadId}`, {
       deviceId: connection.device_id,
+      requestId,
+      uploadId,
       sessionUrl,
       accessToken,
       fileId: file?.id ?? null,
@@ -823,7 +857,7 @@ router.post("/google/backup/archive", async (req, res) => {
       nextChunkIndex: 0,
       createdAt: Date.now(),
     });
-    return res.json({ uploadId, chunkSize, totalChunks });
+    return res.json({ uploadId, chunkSize, totalChunks, nextChunkIndex: 0 });
   } catch (error) {
     if (error instanceof GoogleBackupError) return sendError(res, error.status, error.message);
     return sendError(res, 502, error instanceof Error ? error.message : "Sesi upload backup ZIP belum dapat dibuat.");
@@ -834,10 +868,10 @@ router.put("/google/backup/archive/:uploadId", async (req, res) => {
   try {
     const connection = await getAuthenticatedConnection(req);
     if (!connection) return sendError(res, 401, "Sesi Google tidak ditemukan atau sudah kedaluwarsa.");
-    cleanupPendingBackupUploads();
 
     const uploadId = req.params.uploadId;
     const key = `${connection.device_id}:${uploadId}`;
+    cleanupPendingBackupUploads(key);
     const upload = pendingArchiveUploads.get(key);
     if (!upload || upload.deviceId !== connection.device_id) {
       return sendError(res, 404, "Sesi upload backup ZIP sudah tidak berlaku. Mulai backup lagi.");
@@ -873,6 +907,7 @@ router.put("/google/backup/archive/:uploadId", async (req, res) => {
     if (content.byteLength !== expectedChunkLength || end >= upload.totalBytes) {
       return sendError(res, 400, "Ukuran potongan backup ZIP tidak sesuai.");
     }
+    upload.createdAt = Date.now();
 
     const driveResponse = await fetchGoogle(upload.sessionUrl, {
       method: "PUT",

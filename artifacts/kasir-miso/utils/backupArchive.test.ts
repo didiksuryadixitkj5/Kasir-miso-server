@@ -11,7 +11,11 @@ vi.mock('expo-crypto', () => ({
 }));
 
 import { createStoredBackup, parseStoredBackup } from './backupEnvelope';
-import { createBackupArchive, restoreBackupArchive } from './backupArchive';
+import {
+  backupBytesToBase64,
+  createBackupArchive,
+  restoreBackupArchive,
+} from './backupArchive';
 
 const isAllowedKey = (key: string) => key.startsWith('warung-');
 
@@ -64,6 +68,39 @@ describe('ZIP backup archive', () => {
     expect(JSON.parse(verified.storage['warung-state-v2'])).toEqual({
       menus: [{ imageUri: 'data:image/webp;base64,AQIDBA==' }],
     });
+  });
+
+  it('preserves several multi-megabyte photo files in one offline ZIP', async () => {
+    const photos = Array.from({ length: 3 }, (_, index) => {
+      const bytes = new Uint8Array(4 * 1024 * 1024);
+      bytes.fill((index + 1) * 61);
+      return bytes;
+    });
+    const backup = {
+      format: 'kasir-miso-backup',
+      version: 1,
+      target: 'offline',
+      createdAt: '2026-10-21T10:00:00.000Z',
+      data: {
+        menus: photos.map((photo) => ({
+          imageUri: `data:image/jpeg;base64,${backupBytesToBase64(photo)}`,
+        })),
+      },
+    };
+
+    const archive = await createBackupArchive(
+      JSON.stringify(backup),
+      'offline',
+      backup.createdAt,
+    );
+    const extracted = unzipSync(archive);
+    expect(archive.byteLength).toBeGreaterThan(12 * 1024 * 1024);
+    expect(extracted['images/img-000001.jpg']).toEqual(photos[0]);
+    expect(extracted['images/img-000002.jpg']).toEqual(photos[1]);
+    expect(extracted['images/img-000003.jpg']).toEqual(photos[2]);
+
+    const restored = restoreBackupArchive(archive, 'offline');
+    expect(JSON.parse(restored.restoreImageReferences(restored.payload))).toEqual(backup);
   });
 
   it('rejects an incomplete archive before restoring any content', () => {

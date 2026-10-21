@@ -10,4 +10,5 @@ export interface GoogleBackupArchiveUploadSession {
   uploadId: string;
   chunkSize: number;
   totalChunks: number;
+  nextChunkIndex: number;
 }

@@ -296,7 +296,7 @@ export const getStartGoogleBackupArchiveUploadUrl = () => {
 }
 
 /**
- * @summary Start a resumable Google Drive backup upload
+ * @summary Start or resume a resumable Google Drive backup upload
  */
 export const startGoogleBackupArchiveUpload = async (googleBackupArchiveUploadRequest: GoogleBackupArchiveUploadRequest, options?: Parameters<typeof customFetch>[1]): Promise<GoogleBackupArchiveUploadSession> => {
 
@@ -345,7 +345,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type StartGoogleBackupArchiveUploadMutationError = ErrorType<unknown>
 
     /**
- * @summary Start a resumable Google Drive backup upload
+ * @summary Start or resume a resumable Google Drive backup upload
  */
 export const useStartGoogleBackupArchiveUpload = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startGoogleBackupArchiveUpload>>, TError,{data: BodyType<GoogleBackupArchiveUploadRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}

@@ -34,8 +34,12 @@ export const DownloadGoogleBackupArchiveResponse = zod.unknown()
 
 
 /**
- * @summary Start a resumable Google Drive backup upload
+ * @summary Start or resume a resumable Google Drive backup upload
  */
+export const StartGoogleBackupArchiveUploadHeader = zod.object({
+  "X-Backup-Request-ID": zod.string()
+})
+
 
 
 
@@ -47,7 +51,8 @@ export const StartGoogleBackupArchiveUploadBody = zod.object({
 export const StartGoogleBackupArchiveUploadResponse = zod.object({
   "uploadId": zod.string(),
   "chunkSize": zod.number(),
-  "totalChunks": zod.number()
+  "totalChunks": zod.number(),
+  "nextChunkIndex": zod.number()
 })
 
 

@@ -401,6 +401,7 @@ describe("Google backup upload persistence", () => {
       headers: {
         Authorization: `Bearer ${sessionToken}`,
         "X-Device-ID": deviceId,
+        "X-Backup-Request-ID": "backup-retry-request-01",
         "content-type": "application/json",
       },
       body: JSON.stringify({ content: '{"storage":{}}' }),
@@ -677,8 +678,27 @@ describe("Google ZIP backup transfer", () => {
     });
 
     expect(start.status).toBe(200);
-    const upload = await start.json() as { uploadId: string; chunkSize: number; totalChunks: number };
-    expect(upload).toMatchObject({ chunkSize: 256 * 1024, totalChunks: 2 });
+    const upload = await start.json() as {
+      uploadId: string;
+      chunkSize: number;
+      totalChunks: number;
+      nextChunkIndex: number;
+    };
+    expect(upload).toMatchObject({ chunkSize: 256 * 1024, totalChunks: 2, nextChunkIndex: 0 });
+
+    const repeatedStart = await apiRequest("/google/backup/archive", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "X-Backup-Request-ID": "backup-retry-request-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ totalBytes, expectedModifiedTime: null }),
+    });
+    expect(repeatedStart.status).toBe(200);
+    await expect(repeatedStart.json()).resolves.toMatchObject({ uploadId: upload.uploadId });
+    expect(driveRequests.filter((url) => url.includes("uploadType=resumable"))).toHaveLength(1);
 
     const first = new Uint8Array(upload.chunkSize).fill(7);
     const firstResponse = await apiRequest(`/google/backup/archive/${upload.uploadId}`, {
@@ -695,6 +715,21 @@ describe("Google ZIP backup transfer", () => {
     expect(firstResponse.status).toBe(202);
     await expect(firstResponse.json()).resolves.toEqual({ complete: false, nextChunkIndex: 1 });
 
+    const repeatedFirstResponse = await apiRequest(`/google/backup/archive/${upload.uploadId}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "Content-Type": "application/octet-stream",
+        "X-Backup-Chunk-Index": "0",
+        "X-Backup-Chunk-Total": "2",
+      },
+      body: first,
+    });
+    expect(repeatedFirstResponse.status).toBe(202);
+    await expect(repeatedFirstResponse.json()).resolves.toEqual({ complete: false, nextChunkIndex: 1 });
+    expect(archiveUploadBodies).toHaveLength(1);
+
     const last = new Uint8Array(totalBytes - first.byteLength).fill(9);
     const lastResponse = await apiRequest(`/google/backup/archive/${upload.uploadId}`, {
       method: "PUT",
@@ -710,6 +745,21 @@ describe("Google ZIP backup transfer", () => {
 
     expect(lastResponse.status).toBe(200);
     await expect(lastResponse.json()).resolves.toEqual({
+      modifiedTime: "2026-10-21T10:00:00.000Z",
+    });
+    const repeatedLastResponse = await apiRequest(`/google/backup/archive/${upload.uploadId}`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "Content-Type": "application/octet-stream",
+        "X-Backup-Chunk-Index": "1",
+        "X-Backup-Chunk-Total": "2",
+      },
+      body: last,
+    });
+    expect(repeatedLastResponse.status).toBe(200);
+    await expect(repeatedLastResponse.json()).resolves.toEqual({
       modifiedTime: "2026-10-21T10:00:00.000Z",
     });
     expect(archiveUploadBodies).toEqual([

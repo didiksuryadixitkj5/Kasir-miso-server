@@ -38,6 +38,21 @@ function decodeBase64(value: string): Uint8Array {
 
   const padding = input.endsWith('==') ? 2 : input.endsWith('=') ? 1 : 0;
   const output = new Uint8Array((input.length / 4) * 3 - padding);
+  if (typeof atob === 'function') {
+    let outputIndex = 0;
+    try {
+      for (let index = 0; index < input.length; index += 32_768) {
+        const binary = atob(input.slice(index, index + 32_768));
+        for (let byteIndex = 0; byteIndex < binary.length; byteIndex += 1) {
+          output[outputIndex++] = binary.charCodeAt(byteIndex);
+        }
+      }
+      return output;
+    } catch {
+      throw new Error('Data gambar di backup tidak valid.');
+    }
+  }
+
   let outputIndex = 0;
   for (let index = 0; index < input.length; index += 4) {
     const first = BASE64_ALPHABET.indexOf(input[index]);
@@ -56,6 +71,21 @@ function decodeBase64(value: string): Uint8Array {
 }
 
 function encodeBase64(bytes: Uint8Array): string {
+  if (typeof btoa === 'function') {
+    const chunks: string[] = [];
+    const base64ChunkBytes = 24_576;
+    const binaryChunkBytes = 8_192;
+    for (let offset = 0; offset < bytes.length; offset += base64ChunkBytes) {
+      const end = Math.min(offset + base64ChunkBytes, bytes.length);
+      let binary = '';
+      for (let index = offset; index < end; index += binaryChunkBytes) {
+        binary += String.fromCharCode(...bytes.subarray(index, Math.min(index + binaryChunkBytes, end)));
+      }
+      chunks.push(btoa(binary));
+    }
+    return chunks.join('');
+  }
+
   let output = '';
   for (let index = 0; index < bytes.length; index += 3) {
     const first = bytes[index];

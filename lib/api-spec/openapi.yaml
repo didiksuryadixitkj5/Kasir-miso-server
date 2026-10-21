@@ -52,7 +52,13 @@ paths:
     post:
       operationId: startGoogleBackupArchiveUpload
       tags: [google-backup]
-      summary: Start a resumable Google Drive backup upload
+      summary: Start or resume a resumable Google Drive backup upload
+      parameters:
+        - name: X-Backup-Request-ID
+          in: header
+          required: true
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -146,7 +152,9 @@ components:
           type: number
         totalChunks:
           type: number
-      required: [uploadId, chunkSize, totalChunks]
+        nextChunkIndex:
+          type: number
+      required: [uploadId, chunkSize, totalChunks, nextChunkIndex]
     GoogleBackupArchiveChunkResult:
       type: object
       properties:

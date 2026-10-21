@@ -1,6 +1,6 @@
 export * from "./generated/api";
 export * from "./generated/api.schemas";
-import { customFetch } from "./custom-fetch";
+import { ApiError, customFetch } from "./custom-fetch";
 
 export {
   ApiError,
@@ -45,6 +45,29 @@ export type GoogleDriveArchiveUploadResult = {
   modifiedTime: string;
 };
 
+function isRetryableArchiveError(error: unknown) {
+  if (error instanceof ApiError) {
+    return [408, 425, 429, 500, 502, 503, 504].includes(error.status);
+  }
+  if (error instanceof TypeError) {
+    return /(network|fetch|timeout|timed out|connection)/i.test(error.message);
+  }
+  return error instanceof Error
+    && /(ECONNRESET|ECONNREFUSED|EAI_AGAIN|ETIMEDOUT|socket hang up)/i.test(error.message);
+}
+
+async function retryArchiveRequest<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isRetryableArchiveError(error) || attempt === 2) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 200 * (attempt + 1)));
+    }
+  }
+  throw new Error("Permintaan backup ZIP belum berhasil.");
+}
+
 export async function getGoogleDriveArchiveInfo(
   options?: GoogleRequestOptions,
 ): Promise<GoogleDriveArchiveInfo> {
@@ -72,31 +95,40 @@ export async function uploadGoogleDriveArchive(
   },
   options?: GoogleRequestOptions,
 ): Promise<GoogleDriveArchiveUploadResult> {
-  const session = await customFetch<{
+  const requestId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  const requestHeaders = new Headers(options?.headers);
+  requestHeaders.set("X-Backup-Request-ID", requestId);
+  const sessionOrResult = await retryArchiveRequest(() => customFetch<{
     uploadId: string;
     chunkSize: number;
     totalChunks: number;
-  }>("/api/google/backup/archive", {
+    nextChunkIndex: number;
+  } | GoogleDriveArchiveUploadResult>("/api/google/backup/archive", {
     ...options,
     method: "POST",
-    headers: new Headers(options?.headers),
+    headers: requestHeaders,
     body: JSON.stringify({
       totalBytes: input.bytes.byteLength,
       expectedModifiedTime: input.expectedModifiedTime,
     }),
     responseType: "json",
-  });
+  }));
+  if ("modifiedTime" in sessionOrResult) return sessionOrResult;
+  const session = sessionOrResult;
   if (
     !session.uploadId
     || !Number.isInteger(session.chunkSize)
     || session.chunkSize < 1
     || !Number.isInteger(session.totalChunks)
     || session.totalChunks < 1
+    || !Number.isInteger(session.nextChunkIndex)
+    || session.nextChunkIndex < 0
+    || session.nextChunkIndex > session.totalChunks
   ) {
     throw new Error("Sesi upload backup ZIP tidak valid.");
   }
 
-  let chunkIndex = 0;
+  let chunkIndex = session.nextChunkIndex;
   let finalResult: GoogleDriveArchiveUploadResult | null = null;
   while (chunkIndex < session.totalChunks) {
     const start = chunkIndex * session.chunkSize;
@@ -105,7 +137,7 @@ export async function uploadGoogleDriveArchive(
     headers.set("Content-Type", "application/octet-stream");
     headers.set("X-Backup-Chunk-Index", String(chunkIndex));
     headers.set("X-Backup-Chunk-Total", String(session.totalChunks));
-    const result = await customFetch<
+    const result = await retryArchiveRequest(() => customFetch<
       GoogleDriveArchiveUploadResult | { complete: false; nextChunkIndex: number }
     >(`/api/google/backup/archive/${encodeURIComponent(session.uploadId)}`, {
       ...options,
@@ -113,7 +145,7 @@ export async function uploadGoogleDriveArchive(
       headers,
       body: input.bytes.slice(start, end) as unknown as BodyInit,
       responseType: "json",
-    });
+    }));
 
     if ("modifiedTime" in result) {
       finalResult = result;

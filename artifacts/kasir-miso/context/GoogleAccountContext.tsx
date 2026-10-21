@@ -103,7 +103,16 @@ async function withTransientDriveRetry<T>(operation: () => Promise<T>): Promise<
     try {
       return await operation();
     } catch (reason) {
-      const isTransient = reason instanceof ApiError && [502, 503, 504].includes(reason.status);
+      const isTransient = (
+        reason instanceof ApiError
+        && [408, 425, 429, 500, 502, 503, 504].includes(reason.status)
+      ) || (
+        reason instanceof TypeError
+        && /(network|fetch|timeout|timed out|connection)/i.test(reason.message)
+      ) || (
+        reason instanceof Error
+        && /(ECONNRESET|ECONNREFUSED|EAI_AGAIN|ETIMEDOUT|socket hang up)/i.test(reason.message)
+      );
       if (!isTransient || attempt === 2) throw reason;
       await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
     }
@@ -426,7 +435,7 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
   ) => {
     if (!sessionToken || !deviceId) throw new Error('Hubungkan akun Google Drive terlebih dahulu.');
     try {
-      return await withTransientDriveRetry(() => uploadGoogleDriveArchive(
+      return await uploadGoogleDriveArchive(
         { bytes, expectedModifiedTime },
         {
           headers: {
@@ -434,7 +443,7 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
             'X-Device-ID': deviceId,
           },
         },
-      ));
+      );
     } catch (reason) {
       return handleDriveError(reason);
     }

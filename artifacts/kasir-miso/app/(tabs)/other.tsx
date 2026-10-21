@@ -5,7 +5,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { reloadAppAsync } from 'expo';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { strFromU8 } from 'fflate';
@@ -17,8 +16,6 @@ import { useGoogleAccount } from '@/context/GoogleAccountContext';
 import { useOnlineBackup } from '@/context/OnlineBackupContext';
 import { createOfflineBackup, parseOfflineBackup, type OfflineBackupEnvelope } from '@/utils/backupEnvelope';
 import {
-  backupBase64ToBytes,
-  backupBytesToBase64,
   createBackupArchive,
   restoreBackupArchive,
 } from '@/utils/backupArchive';
@@ -213,13 +210,13 @@ export default function OtherScreen() {
         await AsyncStorage.removeItem(OFFLINE_BACKUP_KEY);
         setNotice('Backup offline ZIP berhasil diunduh.');
       } else {
-        const fileUri = new File(
+        const backupFile = new File(
           Paths.document,
           `kasir-miso-backup-${backup.createdAt.slice(0, 10)}.zip`,
-        ).uri;
-        await FileSystem.writeAsStringAsync(fileUri, backupBytesToBase64(archive), {
-          encoding: 'base64',
-        });
+        );
+        backupFile.create({ overwrite: true });
+        backupFile.write(archive);
+        const fileUri = backupFile.uri;
         await AsyncStorage.setItem(OFFLINE_BACKUP_URI_KEY, fileUri);
         await AsyncStorage.removeItem(OFFLINE_BACKUP_KEY);
         if (await Sharing.isAvailableAsync()) {
@@ -275,10 +272,7 @@ export default function OtherScreen() {
     try {
       const fileUri = await AsyncStorage.getItem(OFFLINE_BACKUP_URI_KEY);
       if (fileUri) {
-        const base64 = await FileSystem.readAsStringAsync(fileUri, {
-          encoding: 'base64',
-        });
-        const archive = restoreBackupArchive(backupBase64ToBytes(base64), 'offline');
+        const archive = restoreBackupArchive(await new File(fileUri).bytes(), 'offline');
         requestOfflineRestore(
           parseOfflineBackup(archive.restoreImageReferences(archive.payload)),
           'perangkat',
@@ -309,9 +303,7 @@ export default function OtherScreen() {
       const asset = result.assets[0];
       const bytes = Platform.OS === 'web' && asset.file
         ? new Uint8Array(await asset.file.arrayBuffer())
-        : backupBase64ToBytes(await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: 'base64',
-        }));
+        : await new File(asset.uri).bytes();
       const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
       if (isZip) {
         const archive = restoreBackupArchive(bytes, 'offline');
