@@ -95,9 +95,12 @@ describe('ZIP backup archive', () => {
     );
     const extracted = unzipSync(archive);
     expect(archive.byteLength).toBeGreaterThan(12 * 1024 * 1024);
-    expect(extracted['images/img-000001.jpg']).toEqual(photos[0]);
-    expect(extracted['images/img-000002.jpg']).toEqual(photos[1]);
-    expect(extracted['images/img-000003.jpg']).toEqual(photos[2]);
+    expect(createHash('sha256').update(extracted['images/img-000001.jpg']).digest('hex'))
+      .toBe(createHash('sha256').update(photos[0]).digest('hex'));
+    expect(createHash('sha256').update(extracted['images/img-000002.jpg']).digest('hex'))
+      .toBe(createHash('sha256').update(photos[1]).digest('hex'));
+    expect(createHash('sha256').update(extracted['images/img-000003.jpg']).digest('hex'))
+      .toBe(createHash('sha256').update(photos[2]).digest('hex'));
 
     const restored = restoreBackupArchive(archive, 'offline');
     expect(JSON.parse(restored.restoreImageReferences(restored.payload))).toEqual(backup);

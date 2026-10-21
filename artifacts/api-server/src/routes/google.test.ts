@@ -401,7 +401,6 @@ describe("Google backup upload persistence", () => {
       headers: {
         Authorization: `Bearer ${sessionToken}`,
         "X-Device-ID": deviceId,
-        "X-Backup-Request-ID": "backup-retry-request-01",
         "content-type": "application/json",
       },
       body: JSON.stringify({ content: '{"storage":{}}' }),
@@ -672,6 +671,7 @@ describe("Google ZIP backup transfer", () => {
       headers: {
         Authorization: `Bearer ${sessionToken}`,
         "X-Device-ID": deviceId,
+        "X-Backup-Request-ID": "backup-retry-request-01",
         "content-type": "application/json",
       },
       body: JSON.stringify({ totalBytes, expectedModifiedTime: null }),
@@ -729,6 +729,22 @@ describe("Google ZIP backup transfer", () => {
     expect(repeatedFirstResponse.status).toBe(202);
     await expect(repeatedFirstResponse.json()).resolves.toEqual({ complete: false, nextChunkIndex: 1 });
     expect(archiveUploadBodies).toHaveLength(1);
+
+    const resumedStart = await apiRequest("/google/backup/archive", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+        "X-Device-ID": deviceId,
+        "X-Backup-Request-ID": "backup-retry-request-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ totalBytes, expectedModifiedTime: null }),
+    });
+    expect(resumedStart.status).toBe(200);
+    await expect(resumedStart.json()).resolves.toMatchObject({
+      uploadId: upload.uploadId,
+      nextChunkIndex: 1,
+    });
 
     const last = new Uint8Array(totalBytes - first.byteLength).fill(9);
     const lastResponse = await apiRequest(`/google/backup/archive/${upload.uploadId}`, {
