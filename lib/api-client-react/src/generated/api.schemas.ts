@@ -9,6 +9,22 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface GoogleNativeConnectRequest {
+  /** @minLength 1 */
+  serverAuthCode: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  deviceId: string;
+}
+
+export interface GoogleSession {
+  sessionToken: string;
+  expiresAt: string;
+  email: string;
+}
+
 export interface GoogleBackupArchiveInfo {
   modifiedTime: string | null;
   size: number;

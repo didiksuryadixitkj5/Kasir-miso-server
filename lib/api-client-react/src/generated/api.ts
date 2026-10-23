@@ -25,6 +25,8 @@ import type {
   GoogleBackupArchiveUploadRequest,
   GoogleBackupArchiveUploadResult,
   GoogleBackupArchiveUploadSession,
+  GoogleNativeConnectRequest,
+  GoogleSession,
   HealthStatus
 } from './api.schemas';
 
@@ -132,6 +134,77 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
+
+export const getConnectGoogleNativeAccountUrl = () => {
+
+
+
+
+  return `/api/google/native-connect`
+}
+
+/**
+ * @summary Exchange a native Google Sign-In server authorization code
+ */
+export const connectGoogleNativeAccount = async (googleNativeConnectRequest: GoogleNativeConnectRequest, options?: Parameters<typeof customFetch>[1]): Promise<GoogleSession> => {
+
+  return customFetch<GoogleSession>(getConnectGoogleNativeAccountUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(googleNativeConnectRequest)
+  }
+);}
+
+
+
+
+
+export const getConnectGoogleNativeAccountMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof connectGoogleNativeAccount>>, TError,{data: BodyType<GoogleNativeConnectRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof connectGoogleNativeAccount>>, TError,{data: BodyType<GoogleNativeConnectRequest>}, TContext> => {
+
+const mutationKey = ['connectGoogleNativeAccount'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof connectGoogleNativeAccount>>, {data: BodyType<GoogleNativeConnectRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  connectGoogleNativeAccount(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConnectGoogleNativeAccountMutationResult = NonNullable<Awaited<ReturnType<typeof connectGoogleNativeAccount>>>
+    export type ConnectGoogleNativeAccountMutationBody = BodyType<GoogleNativeConnectRequest>
+    export type ConnectGoogleNativeAccountMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Exchange a native Google Sign-In server authorization code
+ */
+export const useConnectGoogleNativeAccount = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof connectGoogleNativeAccount>>, TError,{data: BodyType<GoogleNativeConnectRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof connectGoogleNativeAccount>>,
+        TError,
+        {data: BodyType<GoogleNativeConnectRequest>},
+        TContext
+      > => {
+      return useMutation(getConnectGoogleNativeAccountMutationOptions(options));
+    }
 
 export const getGetGoogleBackupArchiveInfoUrl = () => {
 

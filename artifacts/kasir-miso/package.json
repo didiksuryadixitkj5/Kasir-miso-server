@@ -69,6 +69,8 @@
     "expo-print": "~15.0.8",
     "expo-secure-store": "~15.0.8",
     "expo-sharing": "~14.0.8",
-    "fflate": "^0.8.3"
+    "fflate": "^0.8.3",
+    "react-native-nitro-google-signin": "2.3.0",
+    "react-native-nitro-modules": "0.37.1"
   }
 }

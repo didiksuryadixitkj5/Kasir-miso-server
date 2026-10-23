@@ -223,17 +223,17 @@ async function fetchGoogle(input: string, init?: RequestInit) {
 
 async function exchangeAuthorizationCode(input: {
   code: string;
-  codeVerifier: string;
-  redirectUri: string;
+  codeVerifier?: string;
+  redirectUri?: string;
   clientId: string;
 }) {
   const body = new URLSearchParams({
     code: input.code,
-    code_verifier: input.codeVerifier,
     client_id: input.clientId,
-    redirect_uri: input.redirectUri,
     grant_type: "authorization_code",
   });
+  if (input.codeVerifier !== undefined) body.set("code_verifier", input.codeVerifier);
+  if (input.redirectUri !== undefined) body.set("redirect_uri", input.redirectUri);
   const webClientId = getWebClientId();
   if (input.clientId === webClientId) {
     const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -262,6 +262,62 @@ async function fetchUserEmail(accessToken: string) {
     throw new Error("Email akun Google tidak dapat diverifikasi.");
   }
   return data.email;
+}
+
+async function persistGoogleConnection(input: {
+  deviceId: string;
+  email: string;
+  clientId: string;
+  tokenData: GoogleTokenResponse;
+}) {
+  await ensureSchema();
+
+  const existing = await pool.query<{ email: string; encrypted_refresh_token: string }>(
+    "SELECT email, encrypted_refresh_token FROM google_connections WHERE device_id = $1",
+    [input.deviceId],
+  );
+  const existingConnection = existing.rows[0];
+  const refreshToken = input.tokenData.refresh_token
+    ? encryptRefreshToken(input.tokenData.refresh_token)
+    : existingConnection?.encrypted_refresh_token;
+  if (
+    !input.tokenData.refresh_token
+    && existingConnection
+    && existingConnection.email.toLowerCase() !== input.email.toLowerCase()
+  ) {
+    throw new Error(
+      "Google belum memberikan token Drive untuk akun baru. Logout akun lama, lalu pilih akun Google baru dan setujui izin Drive.",
+    );
+  }
+  if (!refreshToken) {
+    throw new Error("Google tidak memberikan izin refresh token. Ulangi login dan setujui akses Drive.");
+  }
+
+  await pool.query(
+    `
+      INSERT INTO google_connections (device_id, email, client_id, encrypted_refresh_token, updated_at)
+      VALUES ($1, $2, $3, $4, NOW())
+      ON CONFLICT (device_id) DO UPDATE SET
+        email = EXCLUDED.email,
+        client_id = EXCLUDED.client_id,
+        encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
+        drive_file_id = CASE
+          WHEN LOWER(google_connections.email) <> LOWER(EXCLUDED.email) THEN NULL
+          ELSE google_connections.drive_file_id
+        END,
+        updated_at = NOW()
+    `,
+    [input.deviceId, input.email, input.clientId, refreshToken],
+  );
+
+  const sessionToken = createSessionToken();
+  const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
+  await pool.query("DELETE FROM google_sessions WHERE device_id = $1", [input.deviceId]);
+  await pool.query(
+    "INSERT INTO google_sessions (session_hash, device_id, expires_at) VALUES ($1, $2, $3)",
+    [hashSessionToken(sessionToken), input.deviceId, expiresAt],
+  );
+  return { sessionToken, expiresAt: expiresAt.toISOString(), email: input.email };
 }
 
 async function getAuthenticatedConnection(req: Request): Promise<AuthenticatedConnection | null> {
@@ -470,56 +526,54 @@ router.post("/google/connect", async (req, res) => {
       clientId: clientId as string,
     });
     const email = await fetchUserEmail(tokenData.access_token as string);
-    await ensureSchema();
+    const session = await persistGoogleConnection({
+      deviceId: deviceId as string,
+      email,
+      clientId: clientId as string,
+      tokenData,
+    });
+    return res.json(session);
+  } catch (error) {
+    return sendError(res, 400, error instanceof Error ? error.message : "Login Google belum berhasil.");
+  }
+});
 
-    const existing = await pool.query<{ email: string; encrypted_refresh_token: string }>(
-      "SELECT email, encrypted_refresh_token FROM google_connections WHERE device_id = $1",
-      [deviceId],
-    );
-    const existingConnection = existing.rows[0];
-    const refreshToken = tokenData.refresh_token
-      ? encryptRefreshToken(tokenData.refresh_token)
-      : existingConnection?.encrypted_refresh_token;
+router.post("/google/native-connect", async (req, res) => {
+  try {
+    const { serverAuthCode, deviceId } = req.body as Record<string, unknown>;
     if (
-      !tokenData.refresh_token
-      && existingConnection
-      && existingConnection.email.toLowerCase() !== email.toLowerCase()
+      typeof serverAuthCode !== "string"
+      || !serverAuthCode.trim()
+      || serverAuthCode.length > 8192
+      || typeof deviceId !== "string"
+      || !deviceId.trim()
+      || deviceId.length > 200
     ) {
-      return sendError(
-        res,
-        400,
-        "Google belum memberikan token Drive untuk akun baru. Logout akun lama, lalu pilih akun Google baru dan setujui izin Drive.",
-      );
+      return sendError(res, 400, "Data login Google native belum lengkap.");
     }
-    if (!refreshToken) {
-      return sendError(res, 400, "Google tidak memberikan izin refresh token. Ulangi login dan setujui akses Drive.");
+    const headerDeviceId = getDeviceId(req);
+    if (!headerDeviceId || headerDeviceId !== deviceId) {
+      return sendError(res, 400, "Identitas perangkat login tidak cocok.");
     }
 
-    await pool.query(
-      `
-        INSERT INTO google_connections (device_id, email, client_id, encrypted_refresh_token, updated_at)
-        VALUES ($1, $2, $3, $4, NOW())
-        ON CONFLICT (device_id) DO UPDATE SET
-          email = EXCLUDED.email,
-          client_id = EXCLUDED.client_id,
-          encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
-          drive_file_id = CASE
-            WHEN LOWER(google_connections.email) <> LOWER(EXCLUDED.email) THEN NULL
-            ELSE google_connections.drive_file_id
-          END,
-          updated_at = NOW()
-      `,
-      [deviceId, email, clientId, refreshToken],
-    );
+    const webClientId = getWebClientId();
+    if (!webClientId || !getAllowedClientIds().has(webClientId)) {
+      return sendError(res, 400, "Web Client ID Google belum diizinkan oleh server.");
+    }
 
-    const sessionToken = createSessionToken();
-    const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
-    await pool.query("DELETE FROM google_sessions WHERE device_id = $1", [deviceId]);
-    await pool.query(
-      "INSERT INTO google_sessions (session_hash, device_id, expires_at) VALUES ($1, $2, $3)",
-      [hashSessionToken(sessionToken), deviceId, expiresAt],
-    );
-    return res.json({ sessionToken, expiresAt: expiresAt.toISOString(), email });
+    const tokenData = await exchangeAuthorizationCode({
+      code: serverAuthCode,
+      clientId: webClientId,
+      redirectUri: "",
+    });
+    const email = await fetchUserEmail(tokenData.access_token as string);
+    const session = await persistGoogleConnection({
+      deviceId,
+      email,
+      clientId: webClientId,
+      tokenData,
+    });
+    return res.json(session);
   } catch (error) {
     return sendError(res, 400, error instanceof Error ? error.message : "Login Google belum berhasil.");
   }

@@ -80,6 +80,8 @@ export default function OtherScreen() {
     hydrated: accountHydrated,
     request,
     promptAsync,
+    connectWithNativeGoogle,
+    googleClientIds,
     clientConfigured: googleClientConfigured,
     serverConfigured: googleServerConfigured,
     hasDriveAccess,
@@ -105,20 +107,20 @@ export default function OtherScreen() {
       );
       return;
     }
-    if (!googleClientConfigured) {
+    if (!googleClientConfigured || (Platform.OS === 'android' && !googleClientIds.web)) {
       setAccountSheetVisible(false);
       setNotice(
         Platform.OS === 'android'
-          ? 'Client ID Google Android tidak ikut dalam build APK. Tambahkan EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ke environment build lalu buat APK baru.'
+          ? 'Lengkapi Web dan Android Client ID Google di pengaturan Client ID Google sebelum login native.'
           : 'Google belum dikonfigurasi untuk platform ini. Tambahkan Client ID OAuth ke environment build.',
       );
       return;
     }
-    if (!request) {
+    if (Platform.OS !== 'android' && !request) {
       setNotice('Login Google sedang disiapkan. Coba lagi sebentar.');
       return;
     }
-    setNotice('Membuka login Google...');
+    setNotice(Platform.OS === 'android' ? 'Menyiapkan login Google di aplikasi...' : 'Membuka login Google...');
     try {
       // Fully remove the old device connection before switching accounts.
       // This prevents the server from ever associating a new email with an
@@ -128,16 +130,21 @@ export default function OtherScreen() {
         await logoutGoogle();
         setIsLoggingOut(false);
       }
-      const result = await promptAsync();
-      if (result.type === 'error') {
-        const detail = result.params?.error_description || result.params?.error;
-        setNotice(
-          detail
-            ? `Login Google ditolak: ${detail}`
-            : 'Login Google ditolak. Periksa Client ID Android, package com.kasirwarung.app, dan SHA-1 penandatangan APK.',
-        );
-      } else if (result.type === 'cancel' || result.type === 'dismiss') {
-        setNotice('Login Google ditutup. Jika popup hilang sendiri, periksa Client ID Android dan SHA-1 APK di Google Cloud.');
+      if (Platform.OS === 'android') {
+        const connected = await connectWithNativeGoogle();
+        setNotice(connected ? 'Akun Google berhasil dihubungkan.' : 'Login Google dibatalkan.');
+      } else {
+        const result = await promptAsync();
+        if (result.type === 'error') {
+          const detail = result.params?.error_description || result.params?.error;
+          setNotice(
+            detail
+              ? `Login Google ditolak: ${detail}`
+              : 'Login Google ditolak. Periksa Client ID Android, package com.kasirwarung.app, dan SHA-1 penandatangan APK.',
+          );
+        } else if (result.type === 'cancel' || result.type === 'dismiss') {
+          setNotice('Login Google ditutup. Jika popup hilang sendiri, periksa Client ID Android dan SHA-1 APK di Google Cloud.');
+        }
       }
     } catch (error) {
       setIsLoggingOut(false);

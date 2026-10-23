@@ -221,6 +221,14 @@ function connectRequest(code: string, extraHeaders: Record<string, string> = {})
   });
 }
 
+function nativeConnectRequest(serverAuthCode: string, extraHeaders: Record<string, string> = {}) {
+  return apiRequest("/google/native-connect", {
+    method: "POST",
+    headers: { "content-type": "application/json", "X-Device-ID": deviceId, ...extraHeaders },
+    body: JSON.stringify({ serverAuthCode, deviceId }),
+  });
+}
+
 async function createValidGoogleSession() {
   tokenResponses.push({ access_token: "access-connect", refresh_token: "refresh-connect" });
   userinfoResponses.push({ email: "backup-owner@example.com" });
@@ -234,6 +242,7 @@ describe("Google connection account isolation", () => {
     process.env.SESSION_SECRET = "test-session-secret";
     process.env.GOOGLE_OAUTH_CLIENT_IDS = clientId;
     process.env.GOOGLE_OAUTH_WEB_CLIENT_ID = "";
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "";
     connection = null;
     session = null;
     query.mockClear();
@@ -315,6 +324,38 @@ describe("Google connection account isolation", () => {
     expect(driveRequests).toContain("token:refresh-b");
     expect(driveRequests).not.toContain("https://www.googleapis.com/drive/v3/files/drive-file-a?fields=id,name,modifiedTime");
     expect(driveRequests.some((url) => url.startsWith("https://www.googleapis.com/drive/v3/files?q="))).toBe(true);
+  });
+
+  it("exchanges native server auth codes with the configured web client and persists the Drive session", async () => {
+    process.env.GOOGLE_OAUTH_WEB_CLIENT_ID = clientId;
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = "test-google-client-secret";
+    tokenResponses.push({ access_token: "native-access", refresh_token: "native-refresh" });
+    userinfoResponses.push({ email: "native-owner@example.com" });
+
+    const response = await nativeConnectRequest("one-time-native-auth-code");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      email: "native-owner@example.com",
+      sessionToken: expect.any(String),
+      expiresAt: expect.any(String),
+    });
+    const tokenRequest = googleFetch.mock.calls.find(([url]) => String(url) === "https://oauth2.googleapis.com/token");
+    const tokenBody = new URLSearchParams(String(tokenRequest?.[1]?.body ?? ""));
+    expect(tokenBody.get("code")).toBe("one-time-native-auth-code");
+    expect(tokenBody.get("client_id")).toBe(clientId);
+    expect(tokenBody.get("redirect_uri")).toBe("");
+    expect(tokenBody.has("code_verifier")).toBe(false);
+    expect(tokenBody.get("client_secret")).toBe("test-google-client-secret");
+    expect(connection?.email).toBe("native-owner@example.com");
+  });
+
+  it("rejects native login when the request device header does not match its body", async () => {
+    const response = await nativeConnectRequest("one-time-native-auth-code", {
+      "X-Device-ID": "different-device",
+    });
+    expect(response.status).toBe(400);
+    expect(googleFetch).not.toHaveBeenCalled();
   });
 });
 

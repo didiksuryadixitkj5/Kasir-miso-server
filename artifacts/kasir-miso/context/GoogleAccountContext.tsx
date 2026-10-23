@@ -9,6 +9,7 @@ import { getApiBaseUrl } from '@/config/runtime';
 import {
   ApiError,
   connectGoogleAccount,
+  connectGoogleNativeAccount,
   disconnectGoogleAccount,
   downloadGoogleDriveArchive,
   downloadGoogleDriveBackup,
@@ -18,6 +19,7 @@ import {
   uploadGoogleDriveArchive,
   uploadGoogleDriveBackup,
 } from '@workspace/api-client-react';
+import { getGoogleDriveServerAuthCode } from './googleNativeSignIn';
 import {
   getGoogleAuthResponseError,
   logoutGoogleAccount,
@@ -85,6 +87,7 @@ type GoogleAccountContextValue = {
   clientIdsComplete: boolean;
   googleClientIds: GoogleClientIds;
   saveGoogleClientIds: (clientIds: GoogleClientIds) => Promise<void>;
+  connectWithNativeGoogle: () => Promise<boolean>;
   serverConfigured: boolean;
   uploadDriveBackup: (content: string, expectedModifiedTime: string | null) => Promise<{ modifiedTime: string }>;
   downloadDriveBackup: () => Promise<{ content: string; modifiedTime: string | null }>;
@@ -362,6 +365,39 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     };
   }, [deviceId, request, response, sessionToken]);
 
+  const connectWithNativeGoogle = useCallback(async () => {
+    if (!deviceId) throw new Error('Identitas perangkat belum siap. Coba lagi sebentar.');
+    const webClientId = googleClientIds.web.trim();
+    if (!webClientId || !googleClientIds.android.trim()) {
+      throw new Error('Lengkapi Web dan Android Client ID Google di pengaturan Client ID Google.');
+    }
+
+    const serverAuthCode = await getGoogleDriveServerAuthCode(webClientId);
+    if (!serverAuthCode) return false;
+
+    const connection = await connectGoogleNativeAccount(
+      { serverAuthCode, deviceId },
+      {
+        headers: {
+          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+          'X-Device-ID': deviceId,
+        },
+      },
+    );
+    await Promise.all([
+      setProtectedItem(GOOGLE_SESSION_TOKEN_KEY, connection.sessionToken),
+      setProtectedItem(GOOGLE_SESSION_EXPIRY_KEY, connection.expiresAt),
+      removeProtectedItem(GOOGLE_OAUTH_VERIFIER_KEY),
+      AsyncStorage.setItem(GOOGLE_ACCOUNT_EMAIL_KEY, connection.email),
+    ]);
+    setSessionToken(connection.sessionToken);
+    setEmail(connection.email);
+    setIsConnected(true);
+    setConnectionGeneration((generation) => generation + 1);
+    setAuthError('');
+    return true;
+  }, [deviceId, googleClientIds.android, googleClientIds.web, sessionToken]);
+
   const saveGoogleClientIds = useCallback(async (clientIds: GoogleClientIds) => {
     const normalized: GoogleClientIds = {
       web: clientIds.web.trim(),
@@ -506,6 +542,7 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
     clientIdsComplete: Boolean(googleClientIds.web && googleClientIds.ios && googleClientIds.android),
     googleClientIds,
     saveGoogleClientIds,
+    connectWithNativeGoogle,
     serverConfigured: googleServerConfigured,
     uploadDriveBackup,
     downloadDriveBackup,
@@ -516,6 +553,7 @@ export function GoogleAccountProvider({ children }: { children: React.ReactNode 
   }), [
     authError,
     connectionGeneration,
+    connectWithNativeGoogle,
     downloadDriveBackup,
     downloadDriveArchive,
     email,

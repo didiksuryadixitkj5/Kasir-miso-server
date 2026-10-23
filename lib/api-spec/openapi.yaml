@@ -24,6 +24,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /google/native-connect:
+    post:
+      operationId: connectGoogleNativeAccount
+      tags: [google-backup]
+      summary: Exchange a native Google Sign-In server authorization code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleNativeConnectRequest"
+      responses:
+        "200":
+          description: Google Drive account connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleSession"
   /google/backup/archive/info:
     get:
       operationId: getGoogleBackupArchiveInfo
@@ -122,6 +140,28 @@ components:
           type: string
       required:
         - status
+    GoogleNativeConnectRequest:
+      type: object
+      properties:
+        serverAuthCode:
+          type: string
+          minLength: 1
+        deviceId:
+          type: string
+          minLength: 1
+          maxLength: 200
+      required: [serverAuthCode, deviceId]
+    GoogleSession:
+      type: object
+      properties:
+        sessionToken:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        email:
+          type: string
+      required: [sessionToken, expiresAt, email]
     GoogleBackupArchiveInfo:
       type: object
       properties:

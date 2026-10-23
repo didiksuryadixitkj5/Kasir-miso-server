@@ -11,4 +11,6 @@ export * from './googleBackupArchiveInfo';
 export * from './googleBackupArchiveUploadRequest';
 export * from './googleBackupArchiveUploadResult';
 export * from './googleBackupArchiveUploadSession';
+export * from './googleNativeConnectRequest';
+export * from './googleSession';
 export * from './healthStatus';

@@ -18,6 +18,26 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
+ * @summary Exchange a native Google Sign-In server authorization code
+ */
+
+export const connectGoogleNativeAccountBodyDeviceIdMax = 200;
+
+
+
+export const ConnectGoogleNativeAccountBody = zod.object({
+  "serverAuthCode": zod.string().min(1),
+  "deviceId": zod.string().min(1).max(connectGoogleNativeAccountBodyDeviceIdMax)
+})
+
+export const ConnectGoogleNativeAccountResponse = zod.object({
+  "sessionToken": zod.string(),
+  "expiresAt": zod.coerce.date(),
+  "email": zod.string()
+})
+
+
+/**
  * @summary Get Google Drive backup metadata
  */
 export const GetGoogleBackupArchiveInfoResponse = zod.object({
