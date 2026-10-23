@@ -48,7 +48,10 @@
       "typedRoutes": true,
       "reactCompiler": true
     },
-    "extra": {},
-    "owner": "ddksryd"
+    "extra": {
+      "eas": {
+        "projectId": "eed42404-b823-4ad9-8f90-44871b4abf79"
+      }
+    }
   }
 }
